@@ -1,0 +1,15 @@
+{
+  "network-security-config": {
+    "domain-config": [
+      {
+        "domains": [
+          {
+            "include-subdomains": true,
+            "name": "apis.netstart.cn"
+          }
+        ],
+        "cleartext-traffic-permitted": true
+      }
+    ]
+  }
+}
