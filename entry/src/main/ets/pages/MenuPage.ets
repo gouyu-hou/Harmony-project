@@ -1,264 +1,159 @@
-import http from '@ohos.net.http';
-
-// --- 1. 数据接口定义 ---
-interface MenuItem {
-  id: number;
-  name: string;
-  price: string;
-  image?: string;
-  description?: string;
-  isHot?: boolean; // 标记是否为热卖
-}
-
-interface MenuCategory {
-  title: string;
-  goods: MenuItem[];
-}
-
-interface ApiResponse {
-  code: number;
-  msg: string;
-  data: MenuCategory[];
-}
-
-// --- 2. 本地保底数据 (当接口挂了或没网时显示这个) ---
-const LOCAL_MOCK_DATA: MenuCategory[] = [
-  {
-    title: '热卖推荐',
-    goods: [
-      { id: 1, name: '焦糖拿铁', price: '28.00', description: 'Caramel Latte | 焦糖风味，甜蜜暖心', isHot: true },
-      { id: 2, name: '榛果拿铁', price: '28.00', description: 'Hazelnut Latte | 榛果浓香，回味无穷', isHot: true },
-      { id: 3, name: '奥瑞白', price: '28.00', description: 'Flat White | 奶泡细腻，咖香浓郁', isHot: true },
-      { id: 4, name: '黑糖波波拿铁', price: '28.00', description: 'Brown Sugar Bubble Latte | Q弹波波', isHot: true },
-      { id: 5, name: '满杯百香果', price: '25.00', description: 'Passion Fruit | 酸甜百香果，维C满满', isHot: true },
-      { id: 6, name: '椰子冰', price: '28.00', description: 'Coconut Ice | 清爽椰香，冰凉一夏', isHot: true }
-    ]
-  },
-  {
-    title: '拿铁',
-    goods: [
-      { id: 1, name: '焦糖拿铁', price: '28.00', description: 'Caramel Latte', isHot: true },
-      { id: 2, name: '榛果拿铁', price: '28.00', description: 'Hazelnut Latte', isHot: true },
-      { id: 4, name: '黑糖波波拿铁', price: '28.00', description: 'Brown Sugar Bubble Latte', isHot: true },
-      { id: 10, name: '生椰拿铁', price: '29.00', description: 'Coconut Latte | 人气爆款', isHot: true },
-      { id: 11, name: '厚乳拿铁', price: '28.00', description: 'Rich Milk Latte', isHot: false }
-    ]
-  },
-  {
-    title: '咖啡',
-    goods: [
-      { id: 3, name: '奥瑞白', price: '28.00', description: 'Flat White', isHot: true },
-      { id: 12, name: '标准美式', price: '22.00', description: 'Americano | 经典黑咖', isHot: false },
-      { id: 13, name: '卡布奇诺', price: '24.00', description: 'Cappuccino', isHot: false },
-      { id: 14, name: '摩卡', price: '27.00', description: 'Mocha', isHot: false }
-    ]
-  },
-  {
-    title: '瑞纳冰',
-    goods: [
-      { id: 6, name: '椰子冰', price: '28.00', description: 'Coconut Ice', isHot: true },
-      { id: 15, name: '巧克力瑞纳冰', price: '27.00', description: 'Chocolate Ice', isHot: false },
-      { id: 16, name: '抹茶瑞纳冰', price: '27.00', description: 'Matcha Ice', isHot: false }
-    ]
-  },
-  {
-    title: '水果茶',
-    goods: [
-      { id: 5, name: '满杯百香果', price: '25.00', description: 'Passion Fruit', isHot: true },
-      { id: 17, name: '桃桃冰', price: '26.00', description: 'Peach Ice', isHot: false }
-    ]
-  }
-];
+// entry/src/main/ets/pages/MenuPage.ets
+import CoffeeApi, { CategoryItem, ProductItem } from '../api/CoffeeApi';
+import router from '@ohos.router';
 @Component
 export struct MenuPage {
   onSearchClick: () => void = () => {};
 
-  @State categoryList: MenuCategory[] = [];
-  @State selectedIndex: number = 0;
-  @State isLoading: boolean = true;
+  // 数据源
+  @State categories: CategoryItem[] = []; // 左侧分类
+  @State products: ProductItem[] = [];    // 右侧商品
+  @State selectedIndex: number = 0;       // 当前选中的分类索引
+  @State isLoading: boolean = false;      // 加载状态
 
   aboutToAppear() {
-    this.fetchMenuData();
+    this.initMenuData();
   }
 
-  async fetchMenuData() {
-    let httpRequest = http.createHttp();
-
+  // 初始化：获取分类列表
+  async initMenuData() {
+    this.isLoading = true;
     try {
-      console.info('正在请求菜单接口...');
-      let response = await httpRequest.request(
-        'https://apis.netstart.cn/coffee/menu',
-        {
-          method: http.RequestMethod.GET,
-          expectDataType: http.HttpDataType.OBJECT,
-          readTimeout: 5000, // 5秒超时
-          connectTimeout: 5000
-        }
-      );
-
-      if (response.responseCode === 200) {
-        const res = response.result as ApiResponse;
-        if (res.code === 200 && res.data && res.data.length > 0) {
-          console.info('网络数据请求成功');
-          this.categoryList = res.data;
-          this.isLoading = false;
-        } else {
-          throw new Error('接口数据为空');
-        }
-      } else {
-        throw new Error('HTTP状态码错误');
+      const res = await CoffeeApi.getTypes();
+      if (res.code === 200 && res.data && res.data.length > 0) {
+        this.categories = res.data;
+        // 默认加载第一个分类的商品
+        await this.loadProducts(this.categories[0].type);
       }
-
     } catch (err) {
-      console.error('网络请求失败，加载本地保底数据: ' + JSON.stringify(err));
-      // 【关键逻辑】：网络失败时，使用本地数据
-      this.categoryList = LOCAL_MOCK_DATA;
-      this.isLoading = false;
+      console.error('分类加载失败, 请检查网络或API');
     } finally {
-      httpRequest.destroy();
+      this.isLoading = false;
+    }
+  }
+
+  // 切换分类：加载对应商品
+  async loadProducts(type: string) {
+    // 切换时先让列表空一下，或者显示Loading，防止视觉混淆
+    this.products = [];
+    try {
+      const res = await CoffeeApi.getProductsByType(type);
+      if (res.code === 200 && res.data) {
+        this.products = res.data;
+      }
+    } catch (err) {
+      console.error(`商品加载失败: ${type}`);
     }
   }
 
   build() {
     Column() {
-      // 1. 顶部搜索框
+      // 1. 搜索框 (保持不变)
       Row() {
         Text('🔍').fontSize(14).fontColor('#999').margin({ left: 10, right: 5 })
         Text('请输入搜索关键词').fontSize(14).fontColor('#CCC')
       }
-      .width('92%')
-      .height(35)
-      .backgroundColor('#F5F5F5')
-      .borderRadius(18)
-      .margin({ top: 10, bottom: 10 })
-      .padding({ left: 10 })
-      .onClick(() => {
-        this.onSearchClick();
-      })
+      .width('92%').height(35).backgroundColor('#F5F5F5').borderRadius(18)
+      .margin({ top: 10, bottom: 10 }).padding({ left: 10 })
+      .onClick(() => { this.onSearchClick(); })
 
-      // 2. 内容区域
-      if (this.isLoading) {
-        Column() {
-          LoadingProgress().width(40).height(40).color('#0035AA')
-          Text('正在加载菜单...').fontSize(14).fontColor('#999').margin({ top: 10 })
-        }
-        .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
-      } else {
-        Row() {
-          // 2.1 左侧分类列表
-          List() {
-            ForEach(this.categoryList, (item: MenuCategory, index: number) => {
-              ListItem() {
-                Row() {
-                  if (this.selectedIndex === index) {
-                    Divider().vertical(true).strokeWidth(4).color('#0035AA').height(20).borderRadius(2)
-                  }
-                  Text(item.title)
-                    .fontSize(14)
-                    .fontColor(this.selectedIndex === index ? '#333' : '#666')
-                    .fontWeight(this.selectedIndex === index ? FontWeight.Bold : FontWeight.Normal)
-                    .layoutWeight(1)
-                    .textAlign(TextAlign.Center)
+      // 2. 主体内容
+      Row() {
+        // 2.1 左侧分类栏
+        List() {
+          ForEach(this.categories, (item: CategoryItem, index: number) => {
+            ListItem() {
+              Row() {
+                // 选中时的左侧蓝条
+                if (this.selectedIndex === index) {
+                  Divider().vertical(true).strokeWidth(4).color('#0035AA').height(20).borderRadius(2)
                 }
-                .width('100%')
-                .height(50)
-                .backgroundColor(this.selectedIndex === index ? Color.White : '#F9F9F9')
-                .onClick(() => {
+                Text(item.typeDesc)
+                  .fontSize(14)
+                  .fontColor(this.selectedIndex === index ? '#333' : '#666')
+                  .fontWeight(this.selectedIndex === index ? FontWeight.Bold : FontWeight.Normal)
+                  .layoutWeight(1)
+                  .textAlign(TextAlign.Center)
+              }
+              .width('100%').height(50)
+              .backgroundColor(this.selectedIndex === index ? Color.White : '#F9F9F9')
+              .onClick(() => {
+                if (this.selectedIndex !== index) {
                   this.selectedIndex = index;
-                })
-              }
-            })
-          }
-          .width('25%')
-          .height('100%')
-          .backgroundColor('#F9F9F9')
-
-          // 2.2 右侧商品列表
-          Column() {
-            if (this.categoryList.length > 0) {
-              Text(this.categoryList[this.selectedIndex].title)
-                .fontSize(12)
-                .fontColor('#333')
-                .width('100%')
-                .padding({ left: 10, top: 10, bottom: 10 })
-                .backgroundColor(Color.White)
+                  this.loadProducts(item.type); // 点击切换数据
+                }
+              })
             }
-
-            List() {
-              if (this.categoryList.length > 0) {
-                ForEach(this.categoryList[this.selectedIndex].goods, (goods: MenuItem) => {
-                  ListItem() {
-                    this.GoodsItemBuilder(goods)
-                  }
-                })
-              }
-            }
-            .layoutWeight(1)
-            .width('100%')
-          }
-          .width('75%')
-          .height('100%')
-          .backgroundColor(Color.White)
+          }, (item: CategoryItem) => item.type)
         }
-        .layoutWeight(1)
-        .width('100%')
+        .width('25%').height('100%').backgroundColor('#F9F9F9')
+
+        // 2.2 右侧商品栏
+        Stack() {
+          if (this.isLoading && this.products.length === 0) {
+            LoadingProgress().width(40).height(40).color('#0035AA')
+          } else {
+            List() {
+              ForEach(this.products, (item: ProductItem) => {
+                ListItem() {
+                  this.GoodsItemBuilder(item)
+                }
+              }, (item: ProductItem) => item.pid)
+            }
+            .layoutWeight(1).width('100%').height('100%')
+          }
+        }
+        .width('75%').height('100%').backgroundColor(Color.White)
       }
+      .layoutWeight(1).width('100%')
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(Color.White)
+    .width('100%').height('100%').backgroundColor(Color.White)
   }
 
-  @Builder GoodsItemBuilder(item: MenuItem) {
+  @Builder GoodsItemBuilder(item: ProductItem) {
     Row() {
-      // 图片占位
-      Stack({ alignContent: Alignment.TopStart }) {
-        Column() {
-          Text('☕').fontSize(30)
-        }
+      // 图片
+      Image(item.smallImg)
         .width(80).height(80)
-        .backgroundColor('#EEE')
-        .justifyContent(FlexAlign.Center)
         .borderRadius(4)
-      }
-      .margin({ right: 10 })
+        .objectFit(ImageFit.Cover)
+        .backgroundColor('#F5F5F5') // 图片加载前的底色
+        .margin({ right: 10 })
 
-      // 商品信息
+      // 信息
       Column() {
         Text(item.name)
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#333')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
 
-        Text(item.description || '暂无描述')
-          .fontSize(12)
-          .fontColor('#999')
+        Text(item.enname)
+          .fontSize(12).fontColor('#999')
           .margin({ top: 2, bottom: 15 })
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
 
         Row() {
           Text(`¥${item.price}`)
-            .fontSize(16)
-            .fontColor('#D22028')
-            .fontWeight(FontWeight.Bold)
+            .fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
 
           Text('⊕')
-            .fontSize(24)
-            .fontColor('#0035AA')
+            .fontSize(24).fontColor('#0035AA')
             .onClick(() => {
-              console.info(`加购: ${item.name}`);
+              // 这里预留加购逻辑
+              console.info(`点击了加购: ${item.name}`);
             })
         }
-        .width('100%')
-        .justifyContent(FlexAlign.SpaceBetween)
+        .width('100%').justifyContent(FlexAlign.SpaceBetween)
       }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1).alignItems(HorizontalAlign.Start)
     }
-    .padding(10)
-    .width('100%')
+    .padding(10).width('100%')
+    .onClick(() => {
+      router.pushUrl({
+        url: 'pages/ProductDetailPage',
+        params: {
+          pid: item.pid // 传递 pid 参数
+        }
+      });
+    })
   }
 }

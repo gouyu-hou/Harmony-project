@@ -2,6 +2,7 @@
 import router from '@ohos.router';
 import CoffeeApi from '../api/CoffeeApi';
 import promptAction from '@ohos.promptAction';
+import { BusinessError } from '@ohos.base'; // <--- 【必须添加这一行】
 
 const THEME_COLOR = '#0035AA';
 const TEXT_GRAY = '#999999';
@@ -10,8 +11,8 @@ const TEXT_GRAY = '#999999';
 @Component
 struct LoginPage {
   @State isForgotPasswordPage: boolean = false;
-  @State loginPhone: string = '13800138000'; // 预填方便测试
-  @State loginPassword: string = '123456';
+  @State loginPhone: string = '13434711088'; // 预填方便测试
+  @State loginPassword: string = '1111';
 
   // 注册弹窗
   dialogController: CustomDialogController = new CustomDialogController({
@@ -73,6 +74,8 @@ struct LoginPage {
   // entry/src/main/ets/pages/LoginPage.ets
 
   // 修改 LoginPage.ets 里的 handleLogin 方法
+  // 修改 LoginPage.ets 中的 handleLogin 方法
+
   async handleLogin() {
     if (!this.loginPhone || !this.loginPassword) {
       promptAction.showToast({ message: '请输入手机号和密码' });
@@ -82,33 +85,48 @@ struct LoginPage {
     try {
       const res = await CoffeeApi.login(this.loginPhone, this.loginPassword);
 
-      // 获取 Token 并明确类型为 string
-      let token: string = '';
-      if (res.token) {
-        token = res.token;
-      } else if (res.data && res.data.token) {
-        token = res.data.token;
-      }
+      // ... (中间获取 token 的代码保持不变) ...
+      let token = res.token || (res.data && res.data.token);
 
-      if (res.code === 200 && token !== '') {
-        promptAction.showToast({ message: '登录成功' });
-        // 存储 Token
+      if (res.code === 200 && token) {
+        // 1. 先存 Token
         AppStorage.SetOrCreate<string>('token', token);
 
-        // 跳转逻辑
-        router.replaceUrl({
-          url: 'pages/MainPage'
-        }).catch((err: BusinessError) => {
-          console.error(`跳转失败 code: ${err.code}`);
-        });
+        // 2. 【新增】立即获取用户信息并存储
+        try {
+          const userRes = await CoffeeApi.getUserInfo(token);
+          if (userRes.code === 200 && userRes.data) {
+            // 将对象转为字符串存储，方便 PersistentStorage 处理
+            AppStorage.SetOrCreate<string>('userInfo', JSON.stringify(userRes.data));
+          }
+        } catch (e) {
+          console.error('获取用户信息失败');
+        }
+
+        // 2. 尝试使用 setTimeout 将跳转推迟到下一个事件循环，
+        // 有时能解决异步回调中丢失 UI 上下文的问题
+        setTimeout(() => {
+          console.info('[Login] 尝试跳转...');
+
+          // 尝试改用 pushUrl 看是否能成功 (有时 replaceUrl 对栈的要求较高)
+          router.pushUrl({
+            url: 'pages/MainPage'
+          }).catch((err: BusinessError) => {
+            console.error(`[Login 跳转失败] code:${err.code}, msg:${err.message}`);
+            // 如果这里报 100002，绝对是 main_pages.json 没生效
+            if (err.code === 100002) {
+              promptAction.showToast({ message: '请执行 Build -> Clean Project' });
+            }
+          });
+        }, 100);
 
       } else {
         promptAction.showToast({ message: res.msg || '登录失败' });
       }
     } catch (err) {
-      // 关键修复：显式转换错误类型
       const error = err as BusinessError;
-      promptAction.showToast({ message: '请求失败：' + error.message });
+      console.error(`[Login] 异常: ${error.message}`);
+      promptAction.showToast({ message: '网络请求失败，请检查网络' });
     }
   }
 

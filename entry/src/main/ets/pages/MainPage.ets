@@ -1,7 +1,10 @@
 import router from '@ohos.router';
-import { MenuPage } from './MenuPage'; // ✅ 引入独立出来的菜单页
+import { MenuPage } from './MenuPage';
+import CoffeeApi, { BannerItem } from '../api/CoffeeApi';
 
-// --- 数据模型定义 (供首页和搜索页使用) ---
+// --- 数据模型定义 ---
+// ⚠️ 注意：为了避免类型冲突，建议统一使用 API 中的 ProductItem
+// 这里为了兼容你现在的代码，保留了本地 Product 定义
 interface Product {
   id: number;
   name: string;
@@ -9,9 +12,11 @@ interface Product {
   price: number;
   isHot?: boolean;
   category: string;
+  // 兼容字段：后续对接 API 时图片字段通常是 smallImg
+  smallImg?: string;
 }
 
-// 模拟数据库 (首页和搜索页用)
+// 模拟数据库
 const PRODUCT_DB: Product[] = [
   { id: 1, name: '焦糖拿铁', enName: 'Caramel Latte', price: 28.00, isHot: true, category: '热卖推荐' },
   { id: 2, name: '榛果拿铁', enName: 'Hazelnut Latte', price: 28.00, isHot: true, category: '热卖推荐' },
@@ -31,9 +36,7 @@ struct MainApp {
 
   build() {
     Stack() {
-      // 底层：主应用 Tabs
       Tabs({ index: this.currentTabIndex }) {
-        // Tab 1: 首页
         TabContent() {
           HomePage({
             onSearchClick: () => {
@@ -43,7 +46,6 @@ struct MainApp {
         }
         .tabBar(this.TabBuilder(0, '首页', '🏠'))
 
-        // Tab 2: 菜单 (使用导入的 MenuPage)
         TabContent() {
           MenuPage({
             onSearchClick: () => {
@@ -53,13 +55,11 @@ struct MainApp {
         }
         .tabBar(this.TabBuilder(1, '菜单', '☕'))
 
-        // Tab 3: 购物袋
         TabContent() {
           BagPage()
         }
         .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
 
-        // Tab 4: 我的
         TabContent() {
           MineView()
         }
@@ -70,7 +70,6 @@ struct MainApp {
         this.currentTabIndex = index;
       })
 
-      // 顶层：全局搜索页
       if (this.isSearchActive) {
         SearchPage({
           onBack: () => {
@@ -101,9 +100,26 @@ struct MainApp {
 struct HomePage {
   onSearchClick: () => void = () => {};
 
+  // 初始化 Banner 数据
+  @State banners: BannerItem[] = [];
+
+  aboutToAppear() {
+    this.fetchBanners();
+  }
+
+  async fetchBanners() {
+    try {
+      const res = await CoffeeApi.getBanner();
+      if (res.code === 200 && res.data) {
+        this.banners = res.data;
+      }
+    } catch (err) {
+      console.error('[HomePage Error] Banner 获取失败');
+    }
+  }
+
   build() {
     Column() {
-      // Header
       Row() {
         Column() {
           Text('下午好').fontSize(14).fontColor('#333')
@@ -111,7 +127,6 @@ struct HomePage {
         }
         .alignItems(HorizontalAlign.Start).margin({ right: 15 })
 
-        // 假搜索框
         Row() {
           Text('🔍').fontSize(14).fontColor('#999').margin({ left: 10, right: 5 })
           Text('请输入搜索关键词').fontSize(14).fontColor('#CCC')
@@ -121,15 +136,21 @@ struct HomePage {
       }
       .width('100%').padding({ left: 15, right: 15, top: 10, bottom: 10 }).backgroundColor(Color.White)
 
-      // Content
       Scroll() {
         Column() {
-          // Banner
-          Swiper() {
-            Column() { Text('Banner 1').fontColor(Color.White) }.width('100%').height(200).backgroundColor('#87CEFA').justifyContent(FlexAlign.Center)
-            Column() { Text('Banner 2').fontColor(Color.White) }.width('100%').height(200).backgroundColor('#90EE90').justifyContent(FlexAlign.Center)
+          if (this.banners.length > 0) {
+            Swiper() {
+              ForEach(this.banners, (item: BannerItem) => {
+                Image(item.bannerImg)
+                  .width('100%').height(200).backgroundColor('#F0F0F0')
+                  .borderRadius(8).objectFit(ImageFit.Cover)
+              }, (item: BannerItem) => item.pid)
+            }
+            .width('100%').height(200).autoPlay(true).indicator(true)
+          } else {
+            // 占位图
+            Row().width('100%').height(200).backgroundColor('#F0F0F0').borderRadius(8)
           }
-          .width('100%').height(200).autoPlay(true).indicator(true)
 
           Text('猜你喜欢').fontSize(18).fontWeight(FontWeight.Bold).width('100%').padding(15)
           ProductGrid({ products: PRODUCT_DB })
@@ -146,7 +167,6 @@ struct HomePage {
 struct BagPage {
   build() {
     Column() {
-      // 顶部导航
       Row() {
         Text('< 返回').fontSize(16).fontColor('#0035AA')
         Text('购物袋').fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1).textAlign(TextAlign.Center).padding({right: 40})
@@ -154,7 +174,6 @@ struct BagPage {
       .width('100%').height(50).padding({ left: 15, right: 15 })
       .backgroundColor(Color.White)
 
-      // Banner
       Column() {
         Text('luckin coffee 的新鲜').fontColor(Color.White).fontSize(14)
         Text('喝下第一口，你就懂了').fontColor(Color.White).fontSize(12).margin({top:5})
@@ -162,7 +181,6 @@ struct BagPage {
       .width('100%').height(80).backgroundColor('#A89A8E').justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Start).padding({left: 20})
 
-      // 空状态
       Column() {
         Text('✖').fontSize(60).fontColor('#DDD').margin({ bottom: 20 })
         Text('请先登录').fontSize(14).fontColor('#999').margin({ bottom: 30 })
@@ -187,22 +205,18 @@ struct BagPage {
 struct MineView {
   build() {
     Column() {
-      // 顶部背景区域
       Stack({ alignContent: Alignment.BottomStart }) {
-        // 背景色块代替图片
         Column().width('100%').height(200).backgroundColor('#333')
 
-        // 用户信息
         Row() {
-          // 头像占位
           Stack({ alignContent: Alignment.Center }) {
             Circle().width(60).height(60).fill(Color.White)
             Text('头像').fontSize(12)
           }.margin({ right: 15 })
 
           Column() {
-            Text('苟宇').fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).margin({ bottom: 5 })
-            Text('2022与你相约在粤嵌，爱你呦么么哒').fontSize(12).fontColor('#EEE')
+            Text('User').fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).margin({ bottom: 5 })
+            Text('Welcome back').fontSize(12).fontColor('#EEE')
           }
           .alignItems(HorizontalAlign.Start)
         }
@@ -210,7 +224,6 @@ struct MineView {
       }
       .width('100%').height(200)
 
-      // 功能菜单
       Column() {
         this.MenuItem('个人资料', () => { router.pushUrl({ url: 'pages/UserInfoPage' }) })
         Divider().color('#F5F5F5')
@@ -292,10 +305,12 @@ struct SearchPage {
   }
 }
 
-// --- 组件：商品网格 ---
+// --- 组件：商品网格 (核心修复处) ---
 @Component
 struct ProductGrid {
-  @Prop products: Product[];
+  // ✅ 修复：必须给 @Prop 提供一个默认值
+  @Prop products: Product[] = [];
+
   build() {
     Grid() {
       ForEach(this.products, (item: Product) => {
@@ -313,6 +328,13 @@ struct ProductGrid {
               Row() {
                 Text(`¥${item.price.toFixed(2)}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
                 Text('⊕').fontSize(24).fontColor('#0035AA')
+                  .onClick(() => {
+                    // 可以在这里跳转详情页，注意传递 pid/id
+                    router.pushUrl({
+                      url: 'pages/ProductDetailPage',
+                      params: { pid: item.id.toString() }
+                    })
+                  })
               }
               .width('100%').justifyContent(FlexAlign.SpaceBetween)
             }
@@ -320,7 +342,7 @@ struct ProductGrid {
           }
           .borderRadius(8).backgroundColor(Color.White).shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
         }
-      })
+      }, (item: Product) => item.id.toString())
     }
     .columnsTemplate('1fr 1fr').columnsGap(10).rowsGap(10).padding(10).width('100%').height('100%')
   }
