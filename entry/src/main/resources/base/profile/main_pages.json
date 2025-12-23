@@ -1,0 +1,12 @@
+{
+  "src": [
+    "pages/LoginPage",
+    "pages/MainPage",
+    "pages/UserInfoPage",
+    "pages/AddressListPage",
+    "pages/AddressEditPage",
+    "pages/SecurityPage",
+    "pages/MyOrderPage",   
+    "pages/MyFavoritePage"
+  ]
+}
