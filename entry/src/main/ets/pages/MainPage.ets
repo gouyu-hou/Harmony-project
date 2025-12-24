@@ -122,7 +122,8 @@ struct HomePage {
   async fetchBanners() {
     try {
       const res = await CoffeeApi.getBanner();
-      if (res.code === 200 && res.data) {
+      // ✅ 修改点：兼容 string 类型的 code
+      if ((res.code === 200 || res.code === '200') && res.data) {
         this.banners = res.data;
       }
     } catch (err) {
@@ -174,7 +175,7 @@ struct HomePage {
   }
 }
 
-// --- 组件：购物袋 (完全修复版) ---
+// --- 组件：购物袋 ---
 @Component
 struct BagPage {
   @StorageLink('token') token: string = '';
@@ -197,8 +198,8 @@ struct BagPage {
     }
     try {
       const res: ApiResponse<ShopCartItem[]> = await CoffeeApi.getShopcartList(this.token);
-      if (res.code === 200 && res.data) {
-        // ✅ 安全校验：确保 data 是数组
+      // ✅ 修改点：兼容 string 类型的 code
+      if ((res.code === 200 || res.code === '200') && res.data) {
         this.cartList = Array.isArray(res.data) ? res.data : [];
         this.calculateTotal();
       } else {
@@ -223,7 +224,8 @@ struct BagPage {
     if (newCount < 1) return;
     try {
       const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
-      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+      // ✅ 修改点：兼容 string 类型的 code
+      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         const item = this.cartList.find(i => i.sid === sid);
         if (item) {
           item.count = newCount;
@@ -238,7 +240,8 @@ struct BagPage {
   async handleDelete(sid: string) {
     try {
       const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
-      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+      // ✅ 修改点：兼容 string 类型的 code
+      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         this.cartList = this.cartList.filter(item => item.sid !== sid);
         this.calculateTotal();
         promptAction.showToast({ message: '已删除' });
@@ -248,8 +251,6 @@ struct BagPage {
     }
   }
 
-  // ✅ 核心修复：将 ListItem 提取为 @Builder
-  // 这能解决 ForEach 内部 "is not callable" 的上下文丢失问题
   @Builder renderCartItem(item: ShopCartItem) {
     ListItem() {
       Row() {
@@ -314,11 +315,9 @@ struct BagPage {
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
         List({ space: 10 }) {
-          // ✅ 修复：在 ForEach 中直接调用 @Builder
           ForEach(this.cartList, (item: ShopCartItem) => {
             this.renderCartItem(item)
           }, (item: ShopCartItem, index: number) => {
-            // 确保 Key 是字符串
             return item.sid ? `${item.sid}` : `cart_item_${index}`;
           })
         }.layoutWeight(1).padding(10).width('100%')
@@ -328,7 +327,16 @@ struct BagPage {
           Button('去结算', { type: ButtonType.Normal })
             .width(100).height(40).backgroundColor('#0035AA').borderRadius(20)
             .onClick(() => {
-              promptAction.showToast({ message: '结算功能待开发' });
+              // 跳转结算页逻辑
+              if (this.cartList.length === 0) return;
+              const sids = this.cartList.map(item => item.sid);
+              router.pushUrl({
+                url: 'pages/SettlementPage',
+                params: {
+                  sids: sids,
+                  totalPrice: this.totalPrice
+                }
+              })
             })
         }
         .width('100%').height(60).backgroundColor(Color.White).padding({ left: 15, right: 15 })
@@ -512,14 +520,14 @@ struct SearchPage {
     // ✅ 调用 API 搜索
     try {
       const res = await CoffeeApi.search(keyword);
-      if (res.code === 200 && res.data) {
-        // ✅ 修复点：移除 as unknown，显式指定 map 的返回类型为 Product
+      // ✅ 修改点：兼容 string 类型的 code
+      if ((res.code === 200 || res.code === '200') && res.data) {
         this.searchResults = res.data.map((item: ProductItem): Product => {
           return {
-            id: parseInt(item.pid),        // 将 string 转 number
+            id: parseInt(item.pid),
             name: item.name,
             enName: item.enname,
-            price: parseFloat(item.price), // 将 string 转 number
+            price: parseFloat(item.price),
             smallImg: item.smallImg,
             category: 'Search',
             isHot: false

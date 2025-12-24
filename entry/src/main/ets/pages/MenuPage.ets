@@ -1,28 +1,26 @@
-// entry/src/main/ets/pages/MenuPage.ets
 import CoffeeApi, { CategoryItem, ProductItem } from '../api/CoffeeApi';
 import router from '@ohos.router';
+
 @Component
 export struct MenuPage {
   onSearchClick: () => void = () => {};
 
-  // 数据源
-  @State categories: CategoryItem[] = []; // 左侧分类
-  @State products: ProductItem[] = [];    // 右侧商品
-  @State selectedIndex: number = 0;       // 当前选中的分类索引
-  @State isLoading: boolean = false;      // 加载状态
+  @State categories: CategoryItem[] = [];
+  @State products: ProductItem[] = [];
+  @State selectedIndex: number = 0;
+  @State isLoading: boolean = false;
 
   aboutToAppear() {
     this.initMenuData();
   }
 
-  // 初始化：获取分类列表
   async initMenuData() {
     this.isLoading = true;
     try {
       const res = await CoffeeApi.getTypes();
-      if (res.code === 200 && res.data && res.data.length > 0) {
+      // ✅ 修改点：兼容 string 类型的 code
+      if ((res.code === 200 || res.code === '200') && res.data && res.data.length > 0) {
         this.categories = res.data;
-        // 默认加载第一个分类的商品
         await this.loadProducts(this.categories[0].type);
       }
     } catch (err) {
@@ -32,13 +30,12 @@ export struct MenuPage {
     }
   }
 
-  // 切换分类：加载对应商品
   async loadProducts(type: string) {
-    // 切换时先让列表空一下，或者显示Loading，防止视觉混淆
     this.products = [];
     try {
       const res = await CoffeeApi.getProductsByType(type);
-      if (res.code === 200 && res.data) {
+      // ✅ 修改点：兼容 string 类型的 code
+      if ((res.code === 200 || res.code === '200') && res.data) {
         this.products = res.data;
       }
     } catch (err) {
@@ -48,7 +45,7 @@ export struct MenuPage {
 
   build() {
     Column() {
-      // 1. 搜索框 (保持不变)
+      // 1. 搜索框
       Row() {
         Text('🔍').fontSize(14).fontColor('#999').margin({ left: 10, right: 5 })
         Text('请输入搜索关键词').fontSize(14).fontColor('#CCC')
@@ -59,12 +56,11 @@ export struct MenuPage {
 
       // 2. 主体内容
       Row() {
-        // 2.1 左侧分类栏
+        // 左侧分类
         List() {
           ForEach(this.categories, (item: CategoryItem, index: number) => {
             ListItem() {
               Row() {
-                // 选中时的左侧蓝条
                 if (this.selectedIndex === index) {
                   Divider().vertical(true).strokeWidth(4).color('#0035AA').height(20).borderRadius(2)
                 }
@@ -80,7 +76,7 @@ export struct MenuPage {
               .onClick(() => {
                 if (this.selectedIndex !== index) {
                   this.selectedIndex = index;
-                  this.loadProducts(item.type); // 点击切换数据
+                  this.loadProducts(item.type);
                 }
               })
             }
@@ -88,7 +84,7 @@ export struct MenuPage {
         }
         .width('25%').height('100%').backgroundColor('#F9F9F9')
 
-        // 2.2 右侧商品栏
+        // 右侧商品
         Stack() {
           if (this.isLoading && this.products.length === 0) {
             LoadingProgress().width(40).height(40).color('#0035AA')
@@ -112,15 +108,13 @@ export struct MenuPage {
 
   @Builder GoodsItemBuilder(item: ProductItem) {
     Row() {
-      // 图片
       Image(item.smallImg)
         .width(80).height(80)
         .borderRadius(4)
         .objectFit(ImageFit.Cover)
-        .backgroundColor('#F5F5F5') // 图片加载前的底色
+        .backgroundColor('#F5F5F5')
         .margin({ right: 10 })
 
-      // 信息
       Column() {
         Text(item.name)
           .fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
@@ -138,8 +132,11 @@ export struct MenuPage {
           Text('⊕')
             .fontSize(24).fontColor('#0035AA')
             .onClick(() => {
-              // 这里预留加购逻辑
-              console.info(`点击了加购: ${item.name}`);
+              // 加购逻辑
+              router.pushUrl({
+                url: 'pages/ProductDetailPage',
+                params: { pid: item.pid }
+              });
             })
         }
         .width('100%').justifyContent(FlexAlign.SpaceBetween)
@@ -150,9 +147,7 @@ export struct MenuPage {
     .onClick(() => {
       router.pushUrl({
         url: 'pages/ProductDetailPage',
-        params: {
-          pid: item.pid // 传递 pid 参数
-        }
+        params: { pid: item.pid }
       });
     })
   }

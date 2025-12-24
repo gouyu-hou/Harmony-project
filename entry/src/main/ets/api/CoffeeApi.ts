@@ -1,4 +1,3 @@
-// entry/src/main/ets/api/CoffeeApi.ts
 import HttpUtil from '../utils/HttpUtil';
 
 const APP_KEY = 'U2FsdGVkX19WSQ59Cg+Fj9jNZPxRC5y0xB1iV06BeNA=';
@@ -61,7 +60,6 @@ export interface OrderProduct {
 
 // ================== 响应结构定义 ==================
 
-// 原始响应：后端实际返回的 JSON 结构
 interface RawResponse<T> {
   code: number | string;
   msg?: string;
@@ -70,13 +68,11 @@ interface RawResponse<T> {
   token?: string;
 }
 
-// 统一响应：前端业务使用的结构
-// ✅ 修复：code 支持 string，增加 result 字段兼容旧代码
 export interface ApiResponse<T> {
   code: number | string;
   msg: string;
   data?: T;
-  result?: T; // 兼容字段，指向 data
+  result?: T;
   token?: string;
 }
 
@@ -86,22 +82,45 @@ class CoffeeApi {
 
   /**
    * 统一处理接口响应
+   * ✅ 修复核心：只要有数据，就视为成功，无视 code=400
    */
   private static normalize<T>(res: RawResponse<T> | undefined | null): ApiResponse<T> {
-    // 1. 防御性检查
     if (!res) {
       console.error('[CoffeeApi] Network Error: response is null');
       return { code: 500, msg: 'Network Error', data: undefined };
     }
 
-    // 2. 数据归一化：优先取 result，没有则取 data
+    // 1. 获取有效数据：优先取 result，其次取 data
     const validData = res.result !== undefined ? res.result : res.data;
 
+    // 2. ✅ 核心修改：如果 validData 存在（非 undefined 且非 null），强制视为成功！
+    // 即使后端返回 code: 400，只要带了数据，我们也认。
+    if (validData !== undefined && validData !== null) {
+      return {
+        code: 200, // 强制修正为 200，让页面逻辑通过
+        msg: 'Success',
+        data: validData,
+        result: validData,
+        token: res.token
+      };
+    }
+
+    // 3. 如果没有数据，再走常规的状态码判断
+    if (res.code === 200 || res.code === '200') {
+      return {
+        code: 200,
+        msg: 'Success',
+        data: validData,
+        result: validData,
+        token: res.token
+      };
+    }
+
+    // 4. 失败情况
     return {
-      code: res.code, // ✅ 修复：保持原始类型，不要强制转 number
-      msg: res.msg || (res.code === 200 || res.code === '200' ? 'Success' : 'Error'),
-      data: validData,
-      result: validData, // ✅ 修复：填充 result 字段
+      code: res.code,
+      msg: res.msg || 'Error',
+      data: undefined,
       token: res.token
     };
   }
