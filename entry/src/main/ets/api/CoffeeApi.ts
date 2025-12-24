@@ -82,7 +82,6 @@ class CoffeeApi {
 
   /**
    * 统一处理接口响应
-   * ✅ 修复核心：只要有数据，就视为成功，无视 code=400
    */
   private static normalize<T>(res: RawResponse<T> | undefined | null): ApiResponse<T> {
     if (!res) {
@@ -90,14 +89,13 @@ class CoffeeApi {
       return { code: 500, msg: 'Network Error', data: undefined };
     }
 
-    // 1. 获取有效数据：优先取 result，其次取 data
+    // 1. 获取有效数据
     const validData = res.result !== undefined ? res.result : res.data;
 
-    // 2. ✅ 核心修改：如果 validData 存在（非 undefined 且非 null），强制视为成功！
-    // 即使后端返回 code: 400，只要带了数据，我们也认。
+    // 2. 只要有数据，强制视为成功 (解决 code:400 但返回数据的情况)
     if (validData !== undefined && validData !== null) {
       return {
-        code: 200, // 强制修正为 200，让页面逻辑通过
+        code: 200,
         msg: 'Success',
         data: validData,
         result: validData,
@@ -105,7 +103,7 @@ class CoffeeApi {
       };
     }
 
-    // 3. 如果没有数据，再走常规的状态码判断
+    // 3. 常规成功判断
     if (res.code === 200 || res.code === '200') {
       return {
         code: 200,
@@ -116,7 +114,7 @@ class CoffeeApi {
       };
     }
 
-    // 4. 失败情况
+    // 4. 失败
     return {
       code: res.code,
       msg: res.msg || 'Error',
@@ -166,15 +164,16 @@ class CoffeeApi {
   }
 
   static async search(name: string): Promise<ApiResponse<ProductItem[]>> {
+    // ✅ 修复：对中文进行编码
     const res = await HttpUtil.get<RawResponse<ProductItem[]>>(`/search?appkey=${APP_KEY}&name=${encodeURIComponent(name)}`);
     return CoffeeApi.normalize(res);
   }
 
   // --- 用户 & 安全接口 ---
   static async getUserInfo(token: string): Promise<ApiResponse<UserInfo>> {
-    const res = await HttpUtil.get<RawResponse<UserInfo[]>>(`/findAccountInfo?appkey=${APP_KEY}&tokenString=${token}`);
+    // ✅ 修复：对 token 进行编码
+    const res = await HttpUtil.get<RawResponse<UserInfo[]>>(`/findAccountInfo?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     const normalized = CoffeeApi.normalize(res);
-    // 特殊处理：如果返回的是数组，取第一个
     if ((normalized.code === 200 || normalized.code === '200') && Array.isArray(normalized.data) && normalized.data.length > 0) {
       return { ...normalized, data: normalized.data[0] } as unknown as ApiResponse<UserInfo>;
     }
@@ -197,7 +196,8 @@ class CoffeeApi {
 
   // --- 地址接口 ---
   static async findAddress(token: string): Promise<ApiResponse<AddressItem[]>> {
-    const res = await HttpUtil.get<RawResponse<AddressItem[]>>(`/findAddress?appkey=${APP_KEY}&tokenString=${token}`);
+    // ✅ 修复：对 token 进行编码
+    const res = await HttpUtil.get<RawResponse<AddressItem[]>>(`/findAddress?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
 
@@ -218,12 +218,14 @@ class CoffeeApi {
 
   // --- 收藏接口 ---
   static async findAllLike(token: string): Promise<ApiResponse<ProductItem[]>> {
-    const res = await HttpUtil.get<RawResponse<ProductItem[]>>(`/findAllLike?appkey=${APP_KEY}&tokenString=${token}`);
+    // ✅ 修复：对 token 进行编码
+    const res = await HttpUtil.get<RawResponse<ProductItem[]>>(`/findAllLike?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
 
   static async findLike(token: string, pid: string): Promise<ApiResponse<ProductItem[]>> {
-    const res = await HttpUtil.get<RawResponse<ProductItem[]>>(`/findlike?appkey=${APP_KEY}&tokenString=${token}&pid=${pid}`);
+    // ✅ 修复：对 token 进行编码
+    const res = await HttpUtil.get<RawResponse<ProductItem[]>>(`/findlike?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&pid=${pid}`);
     return CoffeeApi.normalize(res);
   }
 
@@ -246,7 +248,8 @@ class CoffeeApi {
   }
 
   static async getShopcartList(token: string): Promise<ApiResponse<ShopCartItem[]>> {
-    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/shopcartRows?appkey=${APP_KEY}&tokenString=${token}`);
+    // ✅ 核心修复：对 token 进行编码，防止 + 号变空格导致鉴权失败
+    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/shopcartRows?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
 
@@ -272,7 +275,8 @@ class CoffeeApi {
   }
 
   static async findOrder(token: string, status: number): Promise<ApiResponse<OrderItem[]>> {
-    const res = await HttpUtil.get<RawResponse<OrderItem[]>>(`/findOrder?appkey=${APP_KEY}&tokenString=${token}&status=${status}`);
+    // ✅ 修复：对 token 进行编码
+    const res = await HttpUtil.get<RawResponse<OrderItem[]>>(`/findOrder?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&status=${status}`);
     return CoffeeApi.normalize(res);
   }
 

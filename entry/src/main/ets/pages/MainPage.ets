@@ -54,7 +54,8 @@ struct MainApp {
         .tabBar(this.TabBuilder(1, '菜单', '☕'))
 
         TabContent() {
-          BagPage()
+          // ✅ 修改点：传递 currentIndex 给 BagPage，以便它知道何时刷新
+          BagPage({ currentIndex: this.currentTabIndex })
         }
         .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
 
@@ -122,7 +123,7 @@ struct HomePage {
   async fetchBanners() {
     try {
       const res = await CoffeeApi.getBanner();
-      // ✅ 修改点：兼容 string 类型的 code
+      // 兼容字符串类型的 code
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.banners = res.data;
       }
@@ -182,8 +183,14 @@ struct BagPage {
   @State cartList: ShopCartItem[] = [];
   @State totalPrice: number = 0;
 
-  onPageShow() {
-    this.fetchCartList();
+  // ✅ 新增：接收当前 Tab 索引，用于监听切换
+  @Prop @Watch('onIndexChange') currentIndex: number = 0;
+
+  // ✅ 新增：监听索引变化，切换到购物袋(index=2)时自动刷新
+  onIndexChange() {
+    if (this.currentIndex === 2) {
+      this.fetchCartList();
+    }
   }
 
   aboutToAppear() {
@@ -197,12 +204,13 @@ struct BagPage {
       return;
     }
     try {
-      const res: ApiResponse<ShopCartItem[]> = await CoffeeApi.getShopcartList(this.token);
-      // ✅ 修改点：兼容 string 类型的 code
+      const res = await CoffeeApi.getShopcartList(this.token);
+      // 兼容字符串类型的 code
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.cartList = Array.isArray(res.data) ? res.data : [];
         this.calculateTotal();
       } else {
+        // 如果失败，清空列表（避免显示旧数据）
         this.cartList = [];
         this.totalPrice = 0;
       }
@@ -224,7 +232,6 @@ struct BagPage {
     if (newCount < 1) return;
     try {
       const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
-      // ✅ 修改点：兼容 string 类型的 code
       if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         const item = this.cartList.find(i => i.sid === sid);
         if (item) {
@@ -240,7 +247,6 @@ struct BagPage {
   async handleDelete(sid: string) {
     try {
       const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
-      // ✅ 修改点：兼容 string 类型的 code
       if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         this.cartList = this.cartList.filter(item => item.sid !== sid);
         this.calculateTotal();
@@ -254,6 +260,7 @@ struct BagPage {
   @Builder renderCartItem(item: ShopCartItem) {
     ListItem() {
       Row() {
+        // 这里的 small_img 是 API 返回的字段名，请确认 CoffeeApi.ts 中的 ShopCartItem 接口也是 small_img
         Image(item.small_img).width(80).height(80).borderRadius(8).objectFit(ImageFit.Cover).backgroundColor('#F5F5F5')
 
         Column() {
@@ -327,7 +334,6 @@ struct BagPage {
           Button('去结算', { type: ButtonType.Normal })
             .width(100).height(40).backgroundColor('#0035AA').borderRadius(20)
             .onClick(() => {
-              // 跳转结算页逻辑
               if (this.cartList.length === 0) return;
               const sids = this.cartList.map(item => item.sid);
               router.pushUrl({
@@ -520,7 +526,7 @@ struct SearchPage {
     // ✅ 调用 API 搜索
     try {
       const res = await CoffeeApi.search(keyword);
-      // ✅ 修改点：兼容 string 类型的 code
+      // 兼容字符串类型的 code
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.searchResults = res.data.map((item: ProductItem): Product => {
           return {
