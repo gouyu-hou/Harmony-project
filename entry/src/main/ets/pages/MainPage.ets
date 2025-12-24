@@ -54,7 +54,7 @@ struct MainApp {
         .tabBar(this.TabBuilder(1, '菜单', '☕'))
 
         TabContent() {
-          // ✅ 关键修复：传递 currentIndex 给子组件，用于监听切换
+          // 传递 currentIndex 给子组件，用于监听切换
           BagPage({ currentIndex: this.currentTabIndex })
         }
         .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
@@ -123,7 +123,8 @@ struct HomePage {
   async fetchBanners() {
     try {
       const res = await CoffeeApi.getBanner();
-      if ((res.code === 200 || res.code === '200') && res.data) {
+      // 这里的 Banner 接口通常比较标准，可以保持严谨判断，或者也放宽
+      if (res.data && Array.isArray(res.data)) {
         this.banners = res.data;
       }
     } catch (err) {
@@ -182,7 +183,7 @@ struct BagPage {
   @State cartList: ShopCartItem[] = [];
   @State totalPrice: number = 0;
 
-  // ✅ 关键修复：接收 Tab 索引，监听切换
+  // 接收 Tab 索引，监听切换
   @Prop @Watch('onIndexChange') currentIndex: number = 0;
 
   // 监听器：当切换到 index=2 (购物袋) 时，刷新数据
@@ -206,19 +207,18 @@ struct BagPage {
     }
     try {
       console.info('[BagPage] Fetching list...');
-      // 1. 先调用 getShopcartCount 验证 (这下不会报错了，因为 CoffeeApi 已经补全)
-      const countRes = await CoffeeApi.getShopcartCount(this.token);
-      console.info(`[BagPage] 数量: ${JSON.stringify(countRes.data)}`);
 
-      // 2. 获取列表
       const res = await CoffeeApi.getShopcartList(this.token);
+      console.info(`[BagPage] API Result: Code=${res.code}, DataLength=${res.data?.length}`);
 
-      console.info(`[BagPage] 列表: Code=${res.code}, Len=${res.data?.length}`);
-
-      if ((res.code === 200 || res.code === '200') && res.data) {
-        this.cartList = Array.isArray(res.data) ? res.data : [];
+      // ✅✅✅ 核心修复：这里放宽了判断条件
+      // 只要 res.data 存在且是数组，就认为成功，不再理会 code 是否为 200
+      if (res.data && Array.isArray(res.data)) {
+        this.cartList = res.data;
         this.calculateTotal();
       } else {
+        // 只有真的没有数据时才清空
+        // 如果是 200 但 data 是 null，或者 code 500
         this.cartList = [];
         this.totalPrice = 0;
       }
@@ -240,6 +240,7 @@ struct BagPage {
     if (newCount < 1) return;
     try {
       const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
+      // 修改数量操作通常返回标准 200，这里保持原样，或者也放宽判断
       if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         const item = this.cartList.find(i => i.sid === sid);
         if (item) {
@@ -268,6 +269,7 @@ struct BagPage {
   @Builder renderCartItem(item: ShopCartItem) {
     ListItem() {
       Row() {
+        // 注意：接口返回字段通常是 small_img (下划线)，请确保 CoffeeApi 中定义一致
         Image(item.small_img).width(80).height(80).borderRadius(8).objectFit(ImageFit.Cover).backgroundColor('#F5F5F5')
 
         Column() {
@@ -361,8 +363,9 @@ struct BagPage {
   }
 }
 
-// ... MineView 和 SearchPage 代码保持不变，直接粘贴之前的即可
-// --- 组件：我的页面 ---
+// ... MineView 和 SearchPage 保持不变，请确保文件后半部分包含它们 ...
+// 为了代码完整性，这里补全剩余部分
+
 @Component
 struct MineView {
   @StorageLink('token') token: string = '';
