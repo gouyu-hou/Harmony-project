@@ -498,10 +498,40 @@ struct SearchPage {
     .width('100%').height('100%').backgroundColor(Color.White)
   }
 
-  performSearch(keyword: string) {
-    if (!keyword || keyword.trim() === '') { this.searchResults = []; return; }
-    this.searchResults = PRODUCT_DB.filter(product => product.name.includes(keyword) || product.enName.toLowerCase().includes(keyword.toLowerCase()));
-    if (!this.searchHistory.includes(keyword)) { this.searchHistory.unshift(keyword); }
+  async performSearch(keyword: string) {
+    if (!keyword || keyword.trim() === '') {
+      this.searchResults = [];
+      return;
+    }
+
+    // 记录历史
+    if (!this.searchHistory.includes(keyword)) {
+      this.searchHistory.unshift(keyword);
+    }
+
+    // ✅ 调用 API 搜索
+    try {
+      const res = await CoffeeApi.search(keyword);
+      if (res.code === 200 && res.data) {
+        // ✅ 修复点：移除 as unknown，显式指定 map 的返回类型为 Product
+        this.searchResults = res.data.map((item: ProductItem): Product => {
+          return {
+            id: parseInt(item.pid),        // 将 string 转 number
+            name: item.name,
+            enName: item.enname,
+            price: parseFloat(item.price), // 将 string 转 number
+            smallImg: item.smallImg,
+            category: 'Search',
+            isHot: false
+          };
+        });
+      } else {
+        this.searchResults = [];
+      }
+    } catch (err) {
+      console.error('搜索失败');
+      this.searchResults = [];
+    }
   }
 }
 

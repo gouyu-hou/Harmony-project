@@ -1,91 +1,191 @@
 import router from '@ohos.router';
+import CoffeeApi, { OrderItem, OrderProduct } from '../api/CoffeeApi';
+import promptAction from '@ohos.promptAction';
 
 @Entry
 @Component
 struct MyOrderPage {
-  // 当前选中的 Tab 索引: 0=全部, 1=进行中, 2=已完成
-  @State currentTabIndex: number = 0;
+  @StorageLink('token') token: string = '';
+  // 0=全部, 1=进行中, 2=已完成
+  @State currentStatus: number = 0;
+  @State orderList: OrderItem[] = [];
+  @State isLoading: boolean = false;
 
-  // Tab 标题数组
   tabs: string[] = ['全部', '进行中', '已完成'];
+
+  onPageShow() {
+    this.fetchOrders();
+  }
+
+  async fetchOrders() {
+    if (!this.token) return;
+    this.isLoading = true;
+    this.orderList = [];
+    try {
+      const res = await CoffeeApi.findOrder(this.token, this.currentStatus);
+      if (res.code === 200 && res.result) {
+        this.orderList = Array.isArray(res.result) ? res.result : [];
+      }
+    } catch (err) {
+      console.error('获取订单失败');
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  async handleReceive(oid: string) {
+    try {
+      const res = await CoffeeApi.receiveOrder(this.token, oid);
+      if (res.code === 200 || res.code === 'B001') {
+        promptAction.showToast({ message: '确认收货成功' });
+        this.fetchOrders();
+      } else {
+        promptAction.showToast({ message: res.msg || '操作失败' });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: '网络请求失败' });
+    }
+  }
+
+  async handleDelete(oid: string) {
+    try {
+      const res = await CoffeeApi.removeOrder(this.token, oid);
+      if (res.code === 200 || res.code === 'B001') {
+        promptAction.showToast({ message: '删除成功' });
+        this.fetchOrders();
+      } else {
+        promptAction.showToast({ message: res.msg || '操作失败' });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: '网络请求失败' });
+    }
+  }
 
   build() {
     Column() {
-      // 1. 蓝色背景 + 顶部导航
+      // 1. 顶部导航
       Stack({ alignContent: Alignment.Top }) {
-        // 纯色背景块
-        Column().width('100%').height(120).backgroundColor('#0035AA')
-
-        // 导航栏内容
+        Column().width('100%').height(100).backgroundColor('#0035AA')
         Row() {
-          Text('< 返回')
-            .fontSize(16).fontColor(Color.White)
-            .onClick(() => router.back())
-          Text('我的订单')
-            .fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White)
+          Text('< 返回').fontSize(16).fontColor(Color.White).onClick(() => router.back())
+          Text('我的订单').fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White)
             .layoutWeight(1).textAlign(TextAlign.Center).margin({ right: 40 })
         }
         .width('100%').height(50).padding({ left: 15, right: 15 })
-      }
-      .height(60) // 限制 Stack 高度，让下面的白色卡片自然盖上来
-      .width('100%')
+      }.height(60).width('100%')
 
-      // 2. 白色卡片区域 (Tabs + 内容)
+      // 2. Tab 栏
       Column() {
-        // --- 自定义 Tab 栏 ---
         Row() {
           ForEach(this.tabs, (item: string, index: number) => {
             Column() {
               Text(item)
                 .fontSize(14)
-                .fontColor(this.currentTabIndex === index ? '#0035AA' : '#666')
-                .fontWeight(this.currentTabIndex === index ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(this.currentStatus === index ? '#0035AA' : '#666')
+                .fontWeight(this.currentStatus === index ? FontWeight.Bold : FontWeight.Normal)
                 .margin({ bottom: 8 })
-
-              // 选中时的蓝色下划线
-              if (this.currentTabIndex === index) {
+              if (this.currentStatus === index) {
                 Divider().width(20).strokeWidth(3).color('#0035AA').borderRadius(2)
               } else {
-                // 占位，防止高度跳动
                 Divider().width(20).strokeWidth(3).color(Color.Transparent)
               }
             }
-            .layoutWeight(1)
-            .height(40)
-            .justifyContent(FlexAlign.End)
+            .layoutWeight(1).height(40).justifyContent(FlexAlign.End)
             .onClick(() => {
-              this.currentTabIndex = index;
+              if (this.currentStatus !== index) {
+                this.currentStatus = index;
+                this.fetchOrders();
+              }
             })
           })
+        }.width('100%').border({ width: { bottom: 1 }, color: '#F5F5F5' })
+
+        // 3. 订单列表
+        if (this.isLoading) {
+          Column() { LoadingProgress().width(40).height(40).color('#0035AA') }
+          .layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else if (this.orderList.length === 0) {
+          Column() {
+            Text('📦').fontSize(50).margin({ bottom: 10 })
+            Text('暂无订单').fontSize(14).fontColor('#999')
+          }.layoutWeight(1).justifyContent(FlexAlign.Center)
+        } else {
+          List({ space: 15 }) {
+            ForEach(this.orderList, (order: OrderItem) => {
+              ListItem() {
+                this.OrderCard(order)
+              }
+            }, (item: OrderItem) => item.oid)
+          }
+          .layoutWeight(1).width('100%').padding(15)
         }
-        .width('100%')
-        .border({ width: { bottom: 1 }, color: '#F5F5F5' })
-
-        // --- 内容区域 (空状态) ---
-        Column() {
-          // 这里使用一个灰色的图标或方块代替缺省图
-          // 如果你有图片资源，请替换 Image($r('app.media.empty_order'))
-          Text('🔍').fontSize(14).fontColor('#999').margin({ left: 10, right: 5 })
-
-          Text('没有订单数据!')
-            .fontSize(14)
-            .fontColor('#999')
-        }
-        .width('100%')
-        .layoutWeight(1) // 撑满剩余高度
-        .justifyContent(FlexAlign.Center) // 垂直居中
-        .backgroundColor(Color.White) // 确保背景白
-
       }
-      .width('100%')
-      .layoutWeight(1) // 撑满页面剩余空间
-      .backgroundColor(Color.White)
-      .borderRadius({ topLeft: 12, topRight: 12 }) // 顶部圆角
-      .clip(true) // 裁剪圆角
-      .margin({ top: -10 }) // 稍微上移一点点，或者直接贴合
+      .layoutWeight(1).width('100%').backgroundColor(Color.White)
+      .borderRadius({ topLeft: 12, topRight: 12 }).margin({ top: -10 })
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F5F5F5')
+    .width('100%').height('100%').backgroundColor('#F5F5F5')
+  }
+
+  @Builder OrderCard(order: OrderItem) {
+    Column() {
+      // 头部
+      Row() {
+        Text(order.oid).fontSize(12).fontColor('#999')
+        Text(order.status === 2 ? '已完成' : '进行中')
+          .fontSize(14).fontColor(order.status === 2 ? '#999' : '#D22028')
+      }.width('100%').justifyContent(FlexAlign.SpaceBetween).margin({ bottom: 10 })
+
+      Divider().color('#F5F5F5')
+
+      // 商品列表
+      Column({ space: 10 }) {
+        ForEach(order.products, (prod: OrderProduct) => {
+          Row() {
+            Image(prod.smallImg).width(60).height(60).borderRadius(4).backgroundColor('#F5F5F5')
+            Column() {
+              Text(prod.name).fontSize(14).fontWeight(FontWeight.Bold).maxLines(1)
+              Text(prod.rule).fontSize(12).fontColor('#999').margin({ top: 4 })
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start).margin({ left: 10 })
+            Column() {
+              Text(`¥${prod.price}`).fontSize(14).fontColor('#333')
+              Text(`x${prod.count}`).fontSize(12).fontColor('#999').margin({ top: 4 })
+            }.alignItems(HorizontalAlign.End)
+          }.width('100%').padding({ top: 10, bottom: 10 })
+        }, (p: OrderProduct, i: number) => `${p.pid}_${i}`)
+      }
+
+      Divider().color('#F5F5F5')
+
+      // 底部
+      Row() {
+        Text(order.date).fontSize(12).fontColor('#CCC')
+        Blank()
+        Text(`总计 ¥${order.amount}`).fontSize(14).fontWeight(FontWeight.Bold).margin({ right: 10 })
+
+        if (order.status === 1) {
+          // ✅ 修复点：使用 Normal 类型并手动设置圆角
+          Button('确认收货', { type: ButtonType.Normal })
+            .borderRadius(14)
+            .backgroundColor('#0035AA').fontSize(12).height(28)
+            .onClick(() => this.handleReceive(order.oid))
+        } else {
+          // ✅ 修复点：使用 Normal 类型并手动设置圆角
+          Button('删除订单', { type: ButtonType.Normal })
+            .borderRadius(14)
+            .backgroundColor(Color.White).fontColor('#999').fontSize(12).height(28)
+            .border({ width: 1, color: '#EEE' })
+            .onClick(() => {
+              AlertDialog.show({
+                title: '提示',
+                message: '确认删除此订单？',
+                primaryButton: { value: '取消', action: () => {} },
+                secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete(order.oid) }
+              })
+            })
+        }
+      }.width('100%').margin({ top: 10 }).alignItems(VerticalAlign.Center)
+    }
+    .width('100%').padding(15).backgroundColor(Color.White).borderRadius(8)
+    .shadow({ radius: 5, color: '#0D000000', offsetY: 2 })
   }
 }

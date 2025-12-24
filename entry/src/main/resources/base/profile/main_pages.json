@@ -8,6 +8,7 @@
     "pages/SecurityPage",
     "pages/MyOrderPage",   
     "pages/MyFavoritePage",
-    "pages/ProductDetailPage"
+    "pages/ProductDetailPage",
+    "pages/SettlementPage"
   ]
 }
