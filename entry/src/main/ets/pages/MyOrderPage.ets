@@ -1,5 +1,5 @@
 import router from '@ohos.router';
-import CoffeeApi, { OrderItem, OrderProduct } from '../api/CoffeeApi';
+import CoffeeApi, { OrderItem, OrderProduct,ApiResponse, ShopCartItem } from '../api/CoffeeApi';
 import promptAction from '@ohos.promptAction';
 
 @Entry
@@ -10,6 +10,19 @@ struct MyOrderPage {
   @State currentStatus: number = 0;
   @State orderList: OrderItem[] = [];
   @State isLoading: boolean = false;
+
+  // ✅ 必须定义这个，否则 handleDelete 里的 this.cartList 会报错
+  @State cartList: ShopCartItem[] = [];
+  @State totalPrice: number = 0;
+
+  // ✅ 必须定义这个，否则 handleDelete 里的 this.calculateTotal() 会报错
+  calculateTotal() {
+    let total = 0;
+    this.cartList.forEach((item) => {
+      total += item.price * item.count;
+    });
+    this.totalPrice = total;
+  }
 
   tabs: string[] = ['全部', '进行中', '已完成'];
 
@@ -47,17 +60,24 @@ struct MyOrderPage {
     }
   }
 
-  async handleDelete(oid: string) {
+  async handleDelete(sid: string) {
     try {
-      const res = await CoffeeApi.removeOrder(this.token, oid);
-      if (res.code === 200 || res.code === 'B001') {
-        promptAction.showToast({ message: '删除成功' });
-        this.fetchOrders();
+      const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
+      if (res.code === 6000 || res.code === 200 || res.code === '200') {
+
+        // ✅ 核心修复：
+        const newList = this.cartList.filter(item => item.sid !== sid);
+        // 先置空再赋值，这是 ArkUI 强制刷新的“大招”
+        this.cartList = [];
+        this.cartList = newList;
+
+        this.calculateTotal();
+        promptAction.showToast({ message: '已删除' });
       } else {
-        promptAction.showToast({ message: res.msg || '操作失败' });
+        promptAction.showToast({ message: res.msg || '删除失败' });
       }
     } catch (err) {
-      promptAction.showToast({ message: '网络请求失败' });
+      promptAction.showToast({ message: '删除异常' });
     }
   }
 

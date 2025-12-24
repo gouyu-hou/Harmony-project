@@ -124,14 +124,21 @@ struct ProductDetailPage {
     if (!this.checkLogin()) return;
 
     const rule = this.getRuleString();
+    console.info(`【Debug】正在加入购物车: PID=${this.pid}, Count=${this.buyCount}, Rule=${rule}`); // 👈 新增日志
+
     try {
       const res = await CoffeeApi.addShopcart(this.token, this.pid, this.buyCount, rule);
-      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
+
+      console.info('【Debug】加入购物车接口返回: ' + JSON.stringify(res)); // 👈 新增日志
+
+      // 宽松判断条件，兼容各种成功码
+      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.code === 3000 || res.msg === 'Success') {
         promptAction.showToast({ message: '已加入购物袋 🛍️' });
       } else {
         promptAction.showToast({ message: res.msg || '添加失败' });
       }
     } catch (err) {
+      console.error('【Debug】加入购物车异常: ' + JSON.stringify(err));
       promptAction.showToast({ message: '网络请求失败' });
     }
   }

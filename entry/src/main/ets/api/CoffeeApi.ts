@@ -247,8 +247,8 @@ class CoffeeApi {
 
   // 2. 获取购物车商品条目 (列表) - 核心
   static async getShopcartList(token: string): Promise<ApiResponse<ShopCartItem[]>> {
-    // Token 必须编码
-    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/shopcartRows?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
+    // 修改这里：将 shopcartRows 改为 findAllShopcart
+    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/findAllShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
 

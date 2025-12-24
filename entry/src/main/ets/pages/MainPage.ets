@@ -5,7 +5,7 @@ import promptAction from '@ohos.promptAction';
 
 // --- 本地数据模型 ---
 interface Product {
-  id: number;
+  id: string;
   name: string;
   enName: string;
   price: number;
@@ -16,14 +16,14 @@ interface Product {
 
 // 模拟数据库
 const PRODUCT_DB: Product[] = [
-  { id: 1, name: '焦糖拿铁', enName: 'Caramel Latte', price: 28.00, isHot: true, category: '热卖推荐' },
-  { id: 2, name: '榛果拿铁', enName: 'Hazelnut Latte', price: 28.00, isHot: true, category: '热卖推荐' },
-  { id: 3, name: '标准美式', enName: 'Americano', price: 22.00, isHot: false, category: '咖啡' },
-  { id: 4, name: '生椰拿铁', enName: 'Coconut Latte', price: 29.00, isHot: true, category: '拿铁' },
-  { id: 5, name: '奥瑞白', enName: 'Flat White', price: 28.00, isHot: true, category: '咖啡' },
-  { id: 6, name: '黑糖波波拿铁', enName: 'Brown Sugar Latte', price: 28.00, isHot: true, category: '拿铁' },
-  { id: 7, name: '满杯百香果', enName: 'Passion Fruit', price: 25.00, isHot: true, category: '水果茶' },
-  { id: 8, name: '椰子冰', enName: 'Coconut Ice', price: 28.00, isHot: true, category: '瑞纳冰' },
+  { id: '1', name: '焦糖拿铁', enName: 'Caramel Latte', price: 28.00, isHot: true, category: '热卖推荐' },
+  { id: '2', name: '榛果拿铁', enName: 'Hazelnut Latte', price: 28.00, isHot: true, category: '热卖推荐' },
+  { id: '3', name: '标准美式', enName: 'Americano', price: 22.00, isHot: false, category: '咖啡' },
+  { id: '4', name: '生椰拿铁', enName: 'Coconut Latte', price: 29.00, isHot: true, category: '拿铁' },
+  { id: '5', name: '奥瑞白', enName: 'Flat White', price: 28.00, isHot: true, category: '咖啡' },
+  { id: '6', name: '黑糖波波拿铁', enName: 'Brown Sugar Latte', price: 28.00, isHot: true, category: '拿铁' },
+  { id: '7', name: '满杯百香果', enName: 'Passion Fruit', price: 25.00, isHot: true, category: '水果茶' },
+  { id: '8', name: '椰子冰', enName: 'Coconut Ice', price: 28.00, isHot: true, category: '瑞纳冰' },
 ];
 
 @Entry
@@ -54,7 +54,6 @@ struct MainApp {
         .tabBar(this.TabBuilder(1, '菜单', '☕'))
 
         TabContent() {
-          // 传递 currentIndex 给子组件，用于监听切换
           BagPage({ currentIndex: this.currentTabIndex })
         }
         .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
@@ -115,25 +114,52 @@ struct HomePage {
   }
 
   @State banners: BannerItem[] = [];
+  @State hotProducts: Product[] = [];
 
   aboutToAppear() {
     this.fetchBanners();
+    this.fetchHotProducts();
   }
 
   async fetchBanners() {
     try {
       const res = await CoffeeApi.getBanner();
-      // 这里的 Banner 接口通常比较标准，可以保持严谨判断，或者也放宽
       if (res.data && Array.isArray(res.data)) {
         this.banners = res.data;
       }
     } catch (err) {
-      console.error('[HomePage Error] Banner 获取失败');
+      console.error('[HomePage] Banner 获取失败');
+    }
+  }
+
+  // ✅ 修改后的 fetchHotProducts
+  async fetchHotProducts() {
+    console.info('【Debug】开始调用 getHotProducts 接口...');
+    try {
+      const res = await CoffeeApi.getHotProducts();
+
+      if (res && res.data && Array.isArray(res.data)) {
+        this.hotProducts = res.data.map((item: ProductItem) => {
+          return {
+            id: item.pid,         // ❌ 去掉 parseInt()，直接赋值字符串
+            name: item.name,
+            enName: item.enname,
+            price: parseFloat(item.price), // 价格通常是数字字符串，保留 parseFloat
+            isHot: true,
+            category: '热卖推荐',
+            smallImg: item.smallImg
+          } as Product;
+        });
+        console.info('【Debug】数据转换成功，首个商品ID:', this.hotProducts[0]?.id);
+      }
+    } catch (err) {
+      console.error('【Debug】热卖商品请求异常: ' + JSON.stringify(err));
     }
   }
 
   build() {
     Column() {
+      // 顶部用户信息栏 (保持不变)
       Row() {
         Column() {
           Text('下午好').fontSize(14).fontColor('#333')
@@ -153,6 +179,7 @@ struct HomePage {
 
       Scroll() {
         Column() {
+          // Banner 轮播 (保持不变)
           if (this.banners.length > 0) {
             Swiper() {
               ForEach(this.banners, (item: BannerItem) => {
@@ -167,7 +194,17 @@ struct HomePage {
           }
 
           Text('猜你喜欢').fontSize(18).fontWeight(FontWeight.Bold).width('100%').padding(15)
-          ProductGrid({ products: PRODUCT_DB })
+
+          // 列表渲染
+          if (this.hotProducts.length > 0) {
+            ProductGrid({ products: this.hotProducts })
+          } else {
+            // 加载中或无数据提示
+            Column() {
+              LoadingProgress().width(40).height(40).color('#0035AA')
+              Text('加载数据中...').fontSize(12).fontColor('#999').margin({ top: 10 })
+            }.width('100%').padding(20).justifyContent(FlexAlign.Center)
+          }
         }
       }
       .layoutWeight(1).scrollBar(BarState.Off)
@@ -183,13 +220,10 @@ struct BagPage {
   @State cartList: ShopCartItem[] = [];
   @State totalPrice: number = 0;
 
-  // 接收 Tab 索引，监听切换
   @Prop @Watch('onIndexChange') currentIndex: number = 0;
 
-  // 监听器：当切换到 index=2 (购物袋) 时，刷新数据
   onIndexChange() {
     if (this.currentIndex === 2) {
-      console.info('[BagPage] Tab switched, refreshing...');
       this.fetchCartList();
     }
   }
@@ -200,25 +234,17 @@ struct BagPage {
 
   async fetchCartList() {
     if (!this.token) {
-      console.info('[BagPage] No token');
       this.cartList = [];
       this.totalPrice = 0;
       return;
     }
     try {
-      console.info('[BagPage] Fetching list...');
-
       const res = await CoffeeApi.getShopcartList(this.token);
-      console.info(`[BagPage] API Result: Code=${res.code}, DataLength=${res.data?.length}`);
-
-      // ✅✅✅ 核心修复：这里放宽了判断条件
-      // 只要 res.data 存在且是数组，就认为成功，不再理会 code 是否为 200
+      // 这里的判断逻辑保持你之前的宽容策略
       if (res.data && Array.isArray(res.data)) {
         this.cartList = res.data;
         this.calculateTotal();
       } else {
-        // 只有真的没有数据时才清空
-        // 如果是 200 但 data 是 null，或者 code 500
         this.cartList = [];
         this.totalPrice = 0;
       }
@@ -238,38 +264,62 @@ struct BagPage {
 
   async handleCountChange(sid: string, newCount: number) {
     if (newCount < 1) return;
+
+    const index = this.cartList.findIndex(item => item.sid === sid);
+    if (index === -1) return;
+
     try {
       const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
-      // 修改数量操作通常返回标准 200，这里保持原样，或者也放宽判断
-      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
-        const item = this.cartList.find(i => i.sid === sid);
-        if (item) {
-          item.count = newCount;
-          this.calculateTotal();
-        }
+
+      // 注意：这里增加打印，确认 res.code 到底是多少
+      console.info('接口返回码:', res.code);
+
+      if (res.code === 6000 || res.code === 200 || res.code === '200') {
+        // ✅ 核心修复：不要直接改 count，而是创建一个新对象替换掉旧对象
+        // 虽然 ArkTS 不支持 {...item}，但我们可以手动创建
+        let newItem = this.cartList[index];
+        newItem.count = newCount;
+
+        // 用 splice 替换，并且为了绝对保险，触发一次数组重排
+        this.cartList.splice(index, 1, newItem);
+        this.cartList = [...this.cartList]; // 强制刷新整个列表
+
+        this.calculateTotal();
+      } else {
+        promptAction.showToast({ message: res.msg || '修改失败' });
       }
     } catch (err) {
-      console.error('修改数量失败');
+      console.error('修改数量异常', JSON.stringify(err));
     }
   }
 
+  // ✅✅✅ 修复点 2：删除逻辑
   async handleDelete(sid: string) {
     try {
+      // 注意：deleteShopcart 接口如果支持数组，这里传 [sid] 是对的
       const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
-      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
+
+      // ✅ 关键修改：同样加上 code === 6000
+      if (res.code === 6000 || res.code === 200 || res.code === '200' || res.msg === 'Success') {
+
+        // 从本地数组移除
+        // 既然用了 @State 数组，filter 生成新数组赋值是肯定能触发刷新的
+        // 这里主要是之前 code 不对导致没执行
         this.cartList = this.cartList.filter(item => item.sid !== sid);
+
         this.calculateTotal();
         promptAction.showToast({ message: '已删除' });
+      } else {
+        promptAction.showToast({ message: res.msg || '删除失败' });
       }
     } catch (err) {
-      promptAction.showToast({ message: '删除失败' });
+      promptAction.showToast({ message: '删除异常' });
     }
   }
 
   @Builder renderCartItem(item: ShopCartItem) {
     ListItem() {
       Row() {
-        // 注意：接口返回字段通常是 small_img (下划线)，请确保 CoffeeApi 中定义一致
         Image(item.small_img).width(80).height(80).borderRadius(8).objectFit(ImageFit.Cover).backgroundColor('#F5F5F5')
 
         Column() {
@@ -281,9 +331,11 @@ struct BagPage {
             Blank()
             Row() {
               Text('－').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
+              // 这里调用修复后的方法
                 .onClick(() => this.handleCountChange(item.sid, item.count - 1))
               Text(`${item.count}`).fontSize(14)
               Text('＋').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
+              // 这里调用修复后的方法
                 .onClick(() => this.handleCountChange(item.sid, item.count + 1))
             }
           }.width('100%')
@@ -306,38 +358,39 @@ struct BagPage {
 
   build() {
     Column() {
+      // 顶部标题
       Row() {
         Text('购物袋').fontSize(18).fontWeight(FontWeight.Bold)
       }
       .width('100%').height(50).justifyContent(FlexAlign.Center).backgroundColor(Color.White)
 
       if (!this.token) {
+        // 未登录视图...
         Column() {
+          // (这里保持你原本的代码不变)
           Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
           Text('您还没有登录哦').fontSize(14).fontColor('#999').margin({ top: 10 })
-          Button('去登录', { type: ButtonType.Normal })
-            .width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
+          Button('去登录', { type: ButtonType.Normal }).width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
             .onClick(() => { router.pushUrl({ url: 'pages/LoginPage' }) })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.cartList.length === 0) {
+        // 空购物车视图...
         Column() {
+          // (这里保持你原本的代码不变)
           Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
           Text('购物袋空空如也').fontSize(14).fontColor('#999').margin({ top: 10 })
-          Button('去逛逛', { type: ButtonType.Normal })
-            .width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
-            .onClick(() => {
-              promptAction.showToast({ message: '请点击底部菜单进行选购' });
-            })
+          Button('去逛逛', { type: ButtonType.Normal }).width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
+            .onClick(() => { promptAction.showToast({ message: '请点击底部菜单进行选购' }); })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
+        // 购物车列表
         List({ space: 10 }) {
           ForEach(this.cartList, (item: ShopCartItem) => {
             this.renderCartItem(item)
-          }, (item: ShopCartItem, index: number) => {
-            return item.sid ? `${item.sid}` : `cart_item_${index}`;
-          })
+          }, (item: ShopCartItem) => `${item.sid}_${item.count}`) // 建议 Key 使用 sid 确保唯一
         }.layoutWeight(1).padding(10).width('100%')
 
+        // 底部结算栏
         Row() {
           Text(`应付合计: ¥${this.totalPrice}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
           Button('去结算', { type: ButtonType.Normal })
@@ -541,7 +594,7 @@ struct SearchPage {
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.searchResults = res.data.map((item: ProductItem): Product => {
           return {
-            id: parseInt(item.pid),
+            id: item.pid,
             name: item.name,
             enName: item.enname,
             price: parseFloat(item.price),
@@ -561,6 +614,7 @@ struct SearchPage {
 }
 
 // --- 组件：商品网格 ---
+// --- 组件：商品网格 ---
 @Component
 struct ProductGrid {
   @Prop products: Product[] = [];
@@ -571,21 +625,57 @@ struct ProductGrid {
         GridItem() {
           Column() {
             Stack({ alignContent: Alignment.TopStart }) {
-              Column() { Text('☕').fontSize(40) }.width('100%').height(150).backgroundColor('#EEEEEE').justifyContent(FlexAlign.Center).borderRadius({ topLeft: 8, topRight: 8 })
+              // ✅ 修改：使用 Image 组件显示 item.smallImg
+              // 如果没有图片，显示默认灰色背景
+              Image(item.smallImg)
+                .width('100%')
+                .height(150)
+                .objectFit(ImageFit.Contain) // 保持比例，或者用 Cover
+                .backgroundColor('#F9F9F9')
+                .borderRadius({ topLeft: 8, topRight: 8 })
+                // 加载失败时的占位图 (可选)
+                .alt($r('app.media.shopbag_bg'))
+
               if (item.isHot) {
-                Text('热卖').fontSize(10).fontColor(Color.White).backgroundColor('#FF4400').padding({ left: 6, right: 6, top: 2, bottom: 2 }).borderRadius({ topLeft: 8, bottomRight: 8 })
+                Text('热卖')
+                  .fontSize(10)
+                  .fontColor(Color.White)
+                  .backgroundColor('#FF4400')
+                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                  .borderRadius({ topLeft: 8, bottomRight: 8 })
               }
             }
+
             Column() {
-              Text(item.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-              Text(item.enName).fontSize(12).fontColor('#999').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').margin({ top: 2, bottom: 10 })
+              Text(item.name)
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#333')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+
+              Text(item.enName)
+                .fontSize(12)
+                .fontColor('#999')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+                .margin({ top: 2, bottom: 10 })
+
               Row() {
-                Text(`¥${item.price.toFixed(2)}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
-                Text('⊕').fontSize(24).fontColor('#0035AA')
+                Text(`¥${item.price.toFixed(2)}`)
+                  .fontSize(16)
+                  .fontColor('#D22028')
+                  .fontWeight(FontWeight.Bold)
+
+                Text('⊕')
+                  .fontSize(24)
+                  .fontColor('#0035AA')
                   .onClick(() => {
                     router.pushUrl({
                       url: 'pages/ProductDetailPage',
-                      params: { pid: item.id.toString() }
+                      params: { pid: item.id }
                     })
                   })
               }
@@ -593,10 +683,17 @@ struct ProductGrid {
             }
             .padding(10).backgroundColor(Color.White)
           }
-          .borderRadius(8).backgroundColor(Color.White).shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
+          .borderRadius(8)
+          .backgroundColor(Color.White)
+          .shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
         }
       }, (item: Product) => `${item.id}`)
     }
-    .columnsTemplate('1fr 1fr').columnsGap(10).rowsGap(10).padding(10).width('100%').height('100%')
+    .columnsTemplate('1fr 1fr')
+    .columnsGap(10)
+    .rowsGap(10)
+    .padding(10)
+    .width('100%')
+    .height('100%')
   }
 }
