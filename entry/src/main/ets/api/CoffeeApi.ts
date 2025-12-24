@@ -310,6 +310,48 @@ class CoffeeApi {
     });
     return CoffeeApi.normalize(res);
   }
+
+  /**
+   * 获取个人中心信息
+   * 修复：接口返回的是数组，需要提取第0项
+   */
+  static async findMy(token: string): Promise<ApiResponse<MyData>> {
+    // 1. 泛型改为 MyData[] 接收数组
+    const res = await HttpUtil.get<RawResponse<MyData[]>>(`/findMy?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
+    const normalized = CoffeeApi.normalize(res);
+
+    // 2. 判断并提取数组第一项
+    if ((normalized.code === 200 || normalized.code === '200') && Array.isArray(normalized.data) && normalized.data.length > 0) {
+      return { ...normalized, data: normalized.data[0] } as unknown as ApiResponse<MyData>;
+    }
+
+    return normalized as unknown as ApiResponse<MyData>;
+  }
+
+  /**
+   * 提交订单页面 - 查询需要购买的商品详情
+   * 注意：参数 sids 需要 JSON 序列化
+   */
+  static async commitShopcart(token: string, sids: string[]): Promise<ApiResponse<ShopCartItem[]>> {
+    // GET 请求，sids 需要转为 JSON 字符串并 encode
+    const sidsStr = encodeURIComponent(JSON.stringify(sids));
+    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(
+      `/commitShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&sids=${sidsStr}`
+    );
+    return CoffeeApi.normalize(res);
+  }
+
+  // entry/src/main/ets/api/CoffeeApi.ts
+
+  /**
+   * 根据 AID 查询单条地址详情
+   */
+  static async findAddressByAid(token: string, aid: string): Promise<ApiResponse<AddressItem[]>> {
+    // 接口返回的通常是数组，我们需要在业务层取第一个
+    const res = await HttpUtil.get<RawResponse<AddressItem[]>>(`/findAddressByAid?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&aid=${aid}`);
+    return CoffeeApi.normalize(res);
+  }
+
 }
 
 export default CoffeeApi;

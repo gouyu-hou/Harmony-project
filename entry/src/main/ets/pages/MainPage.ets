@@ -1,6 +1,6 @@
 import router from '@ohos.router';
 import { MenuPage } from './MenuPage';
-import CoffeeApi, { BannerItem, ProductItem, UserInfo, ShopCartItem, ApiResponse } from '../api/CoffeeApi';
+import CoffeeApi, { BannerItem, ProductItem, UserInfo, ShopCartItem, ApiResponse,MyData } from '../api/CoffeeApi';
 import promptAction from '@ohos.promptAction';
 
 // --- 本地数据模型 ---
@@ -431,6 +431,42 @@ struct MineView {
   @StorageLink('token') token: string = '';
   @StorageLink('userInfo') userInfoStr: string = '{}';
 
+  // 【新增】定义状态变量存储个人中心数据
+  @State myData: MyData = { userBg: '' };
+
+  // 【新增】页面加载时调用接口
+  aboutToAppear() {
+    if (this.token) {
+      this.fetchMyData();
+    }
+  }
+
+  // 【新增】获取数据的方法
+  // 【修改】增强日志打印的获取数据方法
+  async fetchMyData() {
+    console.info('【Debug】准备调用 /findMy 接口...'); // 1. 调用前打印
+
+    try {
+      const res = await CoffeeApi.findMy(this.token);
+
+      // 2. 打印接口返回的原始数据结构
+      console.info('【Debug】/findMy 接口返回结果:', JSON.stringify(res));
+
+      if (res.code === 200 || res.code === '200') {
+        if (res.data) {
+          this.myData = res.data;
+          console.info('【Debug】个人信息更新成功，背景图URL:', this.myData.userBg); // 3. 成功后打印关键数据
+        } else {
+          console.warn('【Debug】接口调用成功，但 data 为空');
+        }
+      } else {
+        console.warn('【Debug】接口调用失败 (业务逻辑)，Code:', res.code, 'Msg:', res.msg);
+      }
+    } catch (err) {
+      console.error('【Debug】/findMy 接口网络或代码异常:', JSON.stringify(err)); // 4. 异常打印
+    }
+  }
+
   get user(): UserInfo {
     const defaultUser: UserInfo = { userId: '', nickName: '', userImg: '' };
     if (!this.userInfoStr || this.userInfoStr === '{}') {
@@ -447,7 +483,17 @@ struct MineView {
   build() {
     Column() {
       Stack({ alignContent: Alignment.BottomStart }) {
-        Column().width('100%').height(200).backgroundColor('#333')
+
+        // 【修改】将原本的纯色背景改为：有图片显示图片，没图片显示默认色
+        if (this.myData.userBg) {
+          Image(this.myData.userBg)
+            .width('100%')
+            .height(200)
+            .objectFit(ImageFit.Cover)
+            .backgroundColor('#333') // 加载时的底色
+        } else {
+          Column().width('100%').height(200).backgroundColor('#333')
+        }
 
         Row() {
           Stack({ alignContent: Alignment.Center }) {
