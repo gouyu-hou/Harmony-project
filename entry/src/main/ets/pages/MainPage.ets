@@ -42,7 +42,7 @@ struct MainApp {
             }
           })
         }
-        .tabBar(this.TabBuilder(0, '首页', '🏠'))
+        .tabBar(this.TabBuilder(0, '首页', $r('app.media.home'), $r('app.media.home_active')))
 
         TabContent() {
           MenuPage({
@@ -51,17 +51,17 @@ struct MainApp {
             }
           })
         }
-        .tabBar(this.TabBuilder(1, '菜单', '☕'))
+        .tabBar(this.TabBuilder(1, '菜单', $r('app.media.menu'), $r('app.media.menu_active')))
 
         TabContent() {
           BagPage({ currentIndex: this.currentTabIndex })
         }
-        .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
+        .tabBar(this.TabBuilder(2, '购物袋', $r('app.media.shopbag'), $r('app.media.shopbag_active')))
 
         TabContent() {
           MineView()
         }
-        .tabBar(this.TabBuilder(3, '我的', '👤'))
+        .tabBar(this.TabBuilder(3, '我的', $r('app.media.my'), $r('app.media.my_active')))
       }
       .barPosition(BarPosition.End)
       .onChange((index) => {
@@ -82,14 +82,21 @@ struct MainApp {
     .height('100%')
   }
 
-  @Builder TabBuilder(index: number, title: string, iconEmoji: string) {
+  @Builder TabBuilder(index: number, title: string, icon: Resource, activeIcon: Resource) {
     Column() {
-      Text(iconEmoji).fontSize(24).margin({ bottom: 4 })
-        .opacity(this.currentTabIndex === index ? 1 : 0.4)
-      Text(title).fontSize(10)
+      Image(this.currentTabIndex === index ? activeIcon : icon)
+        .width(24)
+        .height(24)
+        .margin({ bottom: 4 })
+        .objectFit(ImageFit.Contain) // 确保图片不失真
+
+      Text(title)
+        .fontSize(10)
         .fontColor(this.currentTabIndex === index ? '#0035AA' : '#999999')
     }
-    .width('100%').height(50).justifyContent(FlexAlign.Center)
+    .width('100%')
+    .height(50)
+    .justifyContent(FlexAlign.Center)
   }
 }
 
@@ -330,7 +337,7 @@ struct BagPage {
             Text(`¥${item.price}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
             Blank()
             Row() {
-              Text('－').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
+              Text('－').fontSize(15).fontColor('#0035AA').padding({ left: 10, right: 10 })
               // 这里调用修复后的方法
                 .onClick(() => this.handleCountChange(item.sid, item.count - 1))
               Text(`${item.count}`).fontSize(14)

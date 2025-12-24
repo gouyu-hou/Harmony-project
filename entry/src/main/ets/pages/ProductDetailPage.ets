@@ -210,7 +210,7 @@ struct ProductDetailPage {
                   Text('选择数量').fontSize(14).fontColor('#333')
                   Blank()
                   Row() {
-                    Text('－').fontSize(20).padding(10).onClick(() => { if (this.buyCount > 1) this.buyCount-- })
+                    Text('－').fontSize(15).padding(10).onClick(() => { if (this.buyCount > 1) this.buyCount-- })
                     Text(this.buyCount.toString()).fontSize(16).margin({ left: 10, right: 10 })
                     Text('＋').fontSize(20).padding(10).onClick(() => this.buyCount++)
                   }
