@@ -1,10 +1,9 @@
 import router from '@ohos.router';
 import { MenuPage } from './MenuPage';
-import CoffeeApi, { BannerItem } from '../api/CoffeeApi';
+import CoffeeApi, { BannerItem, ProductItem, UserInfo, ShopCartItem, ApiResponse } from '../api/CoffeeApi';
+import promptAction from '@ohos.promptAction';
 
-// --- 数据模型定义 ---
-// ⚠️ 注意：为了避免类型冲突，建议统一使用 API 中的 ProductItem
-// 这里为了兼容你现在的代码，保留了本地 Product 定义
+// --- 本地数据模型 ---
 interface Product {
   id: number;
   name: string;
@@ -12,7 +11,6 @@ interface Product {
   price: number;
   isHot?: boolean;
   category: string;
-  // 兼容字段：后续对接 API 时图片字段通常是 smallImg
   smallImg?: string;
 }
 
@@ -100,7 +98,21 @@ struct MainApp {
 struct HomePage {
   onSearchClick: () => void = () => {};
 
-  // 初始化 Banner 数据
+  @StorageLink('userInfo') userInfoStr: string = '{}';
+
+  get user(): UserInfo {
+    const defaultUser: UserInfo = { userId: '', nickName: 'Guest', userImg: '' };
+    if (!this.userInfoStr || this.userInfoStr === '{}') {
+      return defaultUser;
+    }
+    try {
+      const parsed = JSON.parse(this.userInfoStr) as UserInfo;
+      return parsed ? parsed : defaultUser;
+    } catch {
+      return defaultUser;
+    }
+  }
+
   @State banners: BannerItem[] = [];
 
   aboutToAppear() {
@@ -123,7 +135,8 @@ struct HomePage {
       Row() {
         Column() {
           Text('下午好').fontSize(14).fontColor('#333')
-          Text('User').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#0035AA')
+          Text(this.user?.nickName ?? 'Guest')
+            .fontSize(16).fontWeight(FontWeight.Bold).fontColor('#0035AA')
         }
         .alignItems(HorizontalAlign.Start).margin({ right: 15 })
 
@@ -144,11 +157,10 @@ struct HomePage {
                 Image(item.bannerImg)
                   .width('100%').height(200).backgroundColor('#F0F0F0')
                   .borderRadius(8).objectFit(ImageFit.Cover)
-              }, (item: BannerItem) => item.pid)
+              }, (item: BannerItem, index: number) => item.pid ? `${item.pid}` : `${index}`)
             }
             .width('100%').height(200).autoPlay(true).indicator(true)
           } else {
-            // 占位图
             Row().width('100%').height(200).backgroundColor('#F0F0F0').borderRadius(8)
           }
 
@@ -162,39 +174,167 @@ struct HomePage {
   }
 }
 
-// --- 组件：购物袋 ---
+// --- 组件：购物袋 (完全修复版) ---
 @Component
 struct BagPage {
+  @StorageLink('token') token: string = '';
+  @State cartList: ShopCartItem[] = [];
+  @State totalPrice: number = 0;
+
+  onPageShow() {
+    this.fetchCartList();
+  }
+
+  aboutToAppear() {
+    this.fetchCartList();
+  }
+
+  async fetchCartList() {
+    if (!this.token) {
+      this.cartList = [];
+      this.totalPrice = 0;
+      return;
+    }
+    try {
+      const res: ApiResponse<ShopCartItem[]> = await CoffeeApi.getShopcartList(this.token);
+      if (res.code === 200 && res.data) {
+        // ✅ 安全校验：确保 data 是数组
+        this.cartList = Array.isArray(res.data) ? res.data : [];
+        this.calculateTotal();
+      } else {
+        this.cartList = [];
+        this.totalPrice = 0;
+      }
+    } catch (err) {
+      console.error('获取购物车失败');
+      this.cartList = [];
+    }
+  }
+
+  calculateTotal() {
+    let total = 0;
+    this.cartList.forEach((item) => {
+      total += item.price * item.count;
+    });
+    this.totalPrice = total;
+  }
+
+  async handleCountChange(sid: string, newCount: number) {
+    if (newCount < 1) return;
+    try {
+      const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
+      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+        const item = this.cartList.find(i => i.sid === sid);
+        if (item) {
+          item.count = newCount;
+          this.calculateTotal();
+        }
+      }
+    } catch (err) {
+      console.error('修改数量失败');
+    }
+  }
+
+  async handleDelete(sid: string) {
+    try {
+      const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
+      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+        this.cartList = this.cartList.filter(item => item.sid !== sid);
+        this.calculateTotal();
+        promptAction.showToast({ message: '已删除' });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: '删除失败' });
+    }
+  }
+
+  // ✅ 核心修复：将 ListItem 提取为 @Builder
+  // 这能解决 ForEach 内部 "is not callable" 的上下文丢失问题
+  @Builder renderCartItem(item: ShopCartItem) {
+    ListItem() {
+      Row() {
+        Image(item.small_img).width(80).height(80).borderRadius(8).objectFit(ImageFit.Cover).backgroundColor('#F5F5F5')
+
+        Column() {
+          Text(item.name).fontSize(16).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(item.rule).fontSize(12).fontColor('#999').margin({ top: 5 })
+          Blank()
+          Row() {
+            Text(`¥${item.price}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
+            Blank()
+            Row() {
+              Text('－').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
+                .onClick(() => this.handleCountChange(item.sid, item.count - 1))
+              Text(`${item.count}`).fontSize(14)
+              Text('＋').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
+                .onClick(() => this.handleCountChange(item.sid, item.count + 1))
+            }
+          }.width('100%')
+        }
+        .layoutWeight(1).height(80).margin({ left: 10 }).alignItems(HorizontalAlign.Start)
+
+        Text('×').fontSize(24).fontColor('#999').padding(10)
+          .onClick(() => {
+            AlertDialog.show({
+              title: '提示',
+              message: '确定删除该商品吗？',
+              primaryButton: { value: '取消', action: () => {} },
+              secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete(item.sid) }
+            })
+          })
+      }
+      .width('100%').padding(10).backgroundColor(Color.White).borderRadius(8)
+    }
+  }
+
   build() {
     Column() {
       Row() {
-        Text('< 返回').fontSize(16).fontColor('#0035AA')
-        Text('购物袋').fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1).textAlign(TextAlign.Center).padding({right: 40})
+        Text('购物袋').fontSize(18).fontWeight(FontWeight.Bold)
       }
-      .width('100%').height(50).padding({ left: 15, right: 15 })
-      .backgroundColor(Color.White)
+      .width('100%').height(50).justifyContent(FlexAlign.Center).backgroundColor(Color.White)
 
-      Column() {
-        Text('luckin coffee 的新鲜').fontColor(Color.White).fontSize(14)
-        Text('喝下第一口，你就懂了').fontColor(Color.White).fontSize(12).margin({top:5})
-      }
-      .width('100%').height(80).backgroundColor('#A89A8E').justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Start).padding({left: 20})
-
-      Column() {
-        Text('✖').fontSize(60).fontColor('#DDD').margin({ bottom: 20 })
-        Text('请先登录').fontSize(14).fontColor('#999').margin({ bottom: 30 })
-
-        Button('去登录', { type: ButtonType.Normal })
-          .width(120).height(40)
-          .backgroundColor('#0035AA')
-          .borderRadius(20)
-          .fontSize(14)
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/LoginPage' });
+      if (!this.token) {
+        Column() {
+          Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
+          Text('您还没有登录哦').fontSize(14).fontColor('#999').margin({ top: 10 })
+          Button('去登录', { type: ButtonType.Normal })
+            .width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
+            .onClick(() => { router.pushUrl({ url: 'pages/LoginPage' }) })
+        }.layoutWeight(1).justifyContent(FlexAlign.Center)
+      } else if (this.cartList.length === 0) {
+        Column() {
+          Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
+          Text('购物袋空空如也').fontSize(14).fontColor('#999').margin({ top: 10 })
+          Button('去逛逛', { type: ButtonType.Normal })
+            .width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
+            .onClick(() => {
+              promptAction.showToast({ message: '请点击底部菜单进行选购' });
+            })
+        }.layoutWeight(1).justifyContent(FlexAlign.Center)
+      } else {
+        List({ space: 10 }) {
+          // ✅ 修复：在 ForEach 中直接调用 @Builder
+          ForEach(this.cartList, (item: ShopCartItem) => {
+            this.renderCartItem(item)
+          }, (item: ShopCartItem, index: number) => {
+            // 确保 Key 是字符串
+            return item.sid ? `${item.sid}` : `cart_item_${index}`;
           })
+        }.layoutWeight(1).padding(10).width('100%')
+
+        Row() {
+          Text(`应付合计: ¥${this.totalPrice}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
+          Button('去结算', { type: ButtonType.Normal })
+            .width(100).height(40).backgroundColor('#0035AA').borderRadius(20)
+            .onClick(() => {
+              promptAction.showToast({ message: '结算功能待开发' });
+            })
+        }
+        .width('100%').height(60).backgroundColor(Color.White).padding({ left: 15, right: 15 })
+        .justifyContent(FlexAlign.SpaceBetween)
+        .shadow({ radius: 10, color: '#1A000000', offsetY: -2 })
       }
-      .layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
     }
     .width('100%').height('100%').backgroundColor('#F5F5F5')
   }
@@ -203,6 +343,22 @@ struct BagPage {
 // --- 组件：我的页面 ---
 @Component
 struct MineView {
+  @StorageLink('token') token: string = '';
+  @StorageLink('userInfo') userInfoStr: string = '{}';
+
+  get user(): UserInfo {
+    const defaultUser: UserInfo = { userId: '', nickName: '', userImg: '' };
+    if (!this.userInfoStr || this.userInfoStr === '{}') {
+      return defaultUser;
+    }
+    try {
+      const parsed = JSON.parse(this.userInfoStr) as UserInfo;
+      return parsed ? parsed : defaultUser;
+    } catch {
+      return defaultUser;
+    }
+  }
+
   build() {
     Column() {
       Stack({ alignContent: Alignment.BottomStart }) {
@@ -210,13 +366,21 @@ struct MineView {
 
         Row() {
           Stack({ alignContent: Alignment.Center }) {
-            Circle().width(60).height(60).fill(Color.White)
-            Text('头像').fontSize(12)
+            Image(this.token && this.user?.userImg ? this.user.userImg : $r('app.media.home'))
+              .width(60).height(60).borderRadius(30).backgroundColor(Color.White)
+              .objectFit(ImageFit.Cover)
+              .alt($r('app.media.home'))
           }.margin({ right: 15 })
 
           Column() {
-            Text('User').fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).margin({ bottom: 5 })
-            Text('Welcome back').fontSize(12).fontColor('#EEE')
+            Text(this.token ? (this.user?.nickName ?? '用户') : '点击登录')
+              .fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).margin({ bottom: 5 })
+              .onClick(() => {
+                if (!this.token) router.pushUrl({ url: 'pages/LoginPage' });
+              })
+
+            Text(this.token ? (this.user?.desc ?? '欢迎回来') : '登录享受更多权益')
+              .fontSize(12).fontColor('#EEE')
           }
           .alignItems(HorizontalAlign.Start)
         }
@@ -225,15 +389,27 @@ struct MineView {
       .width('100%').height(200)
 
       Column() {
-        this.MenuItem('个人资料', () => { router.pushUrl({ url: 'pages/UserInfoPage' }) })
+        this.MenuItem('个人资料', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/UserInfoPage' }) })
         Divider().color('#F5F5F5')
-        this.MenuItem('我的订单', () => { router.pushUrl({ url: 'pages/MyOrderPage' }) })
+        this.MenuItem('我的订单', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/MyOrderPage' }) })
         Divider().color('#F5F5F5')
-        this.MenuItem('我的收藏', () => { router.pushUrl({ url: 'pages/MyFavoritePage' }) })
+        this.MenuItem('我的收藏', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/MyFavoritePage' }) })
         Divider().color('#F5F5F5')
-        this.MenuItem('地址管理', () => { router.pushUrl({ url: 'pages/AddressListPage' }) })
+        this.MenuItem('地址管理', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/AddressListPage' }) })
         Divider().color('#F5F5F5')
-        this.MenuItem('安全中心', () => { router.pushUrl({ url: 'pages/SecurityPage' }) })
+        this.MenuItem('安全中心', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/SecurityPage' }) })
+
+        if (this.token) {
+          Divider().color('#F5F5F5')
+          Row() {
+            Text('退出登录').fontSize(16).fontColor('#D22028')
+          }
+          .width('100%').height(55).justifyContent(FlexAlign.Center)
+          .backgroundColor(Color.White)
+          .onClick(() => {
+            this.handleLogout();
+          })
+        }
       }
       .width('100%').backgroundColor(Color.White).borderRadius({ topLeft: 12, topRight: 12 })
       .margin({ top: -15 }).padding({ top: 10, bottom: 10 })
@@ -248,6 +424,30 @@ struct MineView {
     }
     .width('100%').height(55).justifyContent(FlexAlign.SpaceBetween).padding({ left: 20, right: 20 })
     .backgroundColor(Color.White).onClick(onClick)
+  }
+
+  checkLogin(): boolean {
+    if (!this.token) {
+      router.pushUrl({ url: 'pages/LoginPage' });
+      return false;
+    }
+    return true;
+  }
+
+  handleLogout() {
+    AlertDialog.show({
+      title: '提示',
+      message: '确定要退出登录吗？',
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: {
+        value: '退出', fontColor: '#D22028',
+        action: () => {
+          AppStorage.SetOrCreate('token', '');
+          AppStorage.SetOrCreate('userInfo', '{}');
+          router.replaceUrl({ url: 'pages/LoginPage' });
+        }
+      }
+    })
   }
 }
 
@@ -283,7 +483,7 @@ struct SearchPage {
               }
               .padding({ left: 12, right: 12, top: 6, bottom: 6 }).backgroundColor('#F5F5F5').borderRadius(4).margin({ right: 10, bottom: 10 })
               .onClick(() => { this.searchText = item; this.performSearch(item); })
-            })
+            }, (item: string, index: number) => `${item}_${index}`)
           }
           .padding({ top: 10, bottom: 20 })
           if (this.searchHistory.length > 0) {
@@ -305,10 +505,9 @@ struct SearchPage {
   }
 }
 
-// --- 组件：商品网格 (核心修复处) ---
+// --- 组件：商品网格 ---
 @Component
 struct ProductGrid {
-  // ✅ 修复：必须给 @Prop 提供一个默认值
   @Prop products: Product[] = [];
 
   build() {
@@ -329,7 +528,6 @@ struct ProductGrid {
                 Text(`¥${item.price.toFixed(2)}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
                 Text('⊕').fontSize(24).fontColor('#0035AA')
                   .onClick(() => {
-                    // 可以在这里跳转详情页，注意传递 pid/id
                     router.pushUrl({
                       url: 'pages/ProductDetailPage',
                       params: { pid: item.id.toString() }
@@ -342,7 +540,7 @@ struct ProductGrid {
           }
           .borderRadius(8).backgroundColor(Color.White).shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
         }
-      }, (item: Product) => item.id.toString())
+      }, (item: Product) => `${item.id}`)
     }
     .columnsTemplate('1fr 1fr').columnsGap(10).rowsGap(10).padding(10).width('100%').height('100%')
   }

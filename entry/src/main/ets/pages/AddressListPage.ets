@@ -1,26 +1,38 @@
 import router from '@ohos.router';
-
-// 1. 【新增】定义地址数据的接口结构
-interface AddressModel {
-  id: number;
-  name: string;
-  phone: string;
-  address: string;
-  isDefault: boolean;
-}
+import CoffeeApi, { AddressItem } from '../api/CoffeeApi'; // ✅ 引入新定义的接口
+import promptAction from '@ohos.promptAction';
 
 @Entry
 @Component
 struct AddressListPage {
-  // 2. 【修改】使用明确的类型 AddressModel[]，不再用 any[]
-  @State addressList: AddressModel[] = [
-    { id: 1, name: '苟宇', phone: '13434711077', address: '广东省广州市天河区珠吉街道100号', isDefault: true },
-    { id: 2, name: '爱丽丝', phone: '16809801654', address: '北京市北京市东城区108街道', isDefault: false }
-  ];
+  @StorageLink('token') token: string = '';
+
+  // ✅ 1. 使用 API 定义的 AddressItem 类型
+  @State addressList: AddressItem[] = [];
+
+  // ✅ 2. 使用 onPageShow，确保每次返回页面时都刷新数据
+  onPageShow() {
+    this.fetchAddressList();
+  }
+
+  async fetchAddressList() {
+    if (!this.token) {
+      promptAction.showToast({ message: '请先登录' });
+      return;
+    }
+    try {
+      const res = await CoffeeApi.findAddress(this.token);
+      if (res.code === 200 && res.data) {
+        this.addressList = res.data;
+      }
+    } catch (err) {
+      console.error('获取地址列表失败');
+    }
+  }
 
   build() {
     Column() {
-      // 顶部导航 (保持不变)
+      // 顶部导航
       Row() {
         Text('< 返回').fontSize(16).fontColor('#0035AA').onClick(() => router.back())
         Text('地址管理').fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1).textAlign(TextAlign.Center).margin({ right: 40 })
@@ -29,21 +41,25 @@ struct AddressListPage {
 
       // 地址列表
       List({ space: 10 }) {
-        // 3. 【修改】ForEach 中指定 item 的类型为 AddressModel
-        ForEach(this.addressList, (item: AddressModel) => {
+        ForEach(this.addressList, (item: AddressItem) => {
           ListItem() {
             Row() {
               // 左侧信息
               Column({ space: 5 }) {
                 Row() {
                   Text(item.name).fontSize(16).fontWeight(FontWeight.Bold).margin({ right: 10 })
-                  Text(item.phone).fontSize(16).fontColor('#666')
-                  if (item.isDefault) {
+                  // ✅ 接口字段是 tel
+                  Text(item.tel).fontSize(16).fontColor('#666')
+
+                  // ✅ 接口 isDefault 是 1 (默认) 或 0 (非默认)
+                  if (item.isDefault === 1) {
                     Text('默认').fontSize(10).fontColor(Color.White).backgroundColor('#0035AA')
                       .padding({ left: 4, right: 4, top: 2, bottom: 2 }).borderRadius(4).margin({ left: 10 })
                   }
                 }
-                Text(item.address).fontSize(14).fontColor('#333').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                // ✅ 拼接完整地址：省 + 市 + 区 + 详细
+                Text(`${item.province}${item.city}${item.county}${item.addressDetail}`)
+                  .fontSize(14).fontColor('#333').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
@@ -52,8 +68,11 @@ struct AddressListPage {
               Text('✎')
                 .fontSize(20).fontColor('#999').padding(10)
                 .onClick(() => {
-                  // 跳转编辑 (参数对象也建议定义类型，这里保持简单传参)
-                  router.pushUrl({ url: 'pages/AddressEditPage', params: { editMode: true, data: item } })
+                  // 跳转编辑 (后续实现编辑功能时会用到这些参数)
+                  router.pushUrl({
+                    url: 'pages/AddressEditPage',
+                    params: { editMode: true, addressData: item }
+                  })
                 })
             }
             .width('100%').padding(15).backgroundColor(Color.White).borderRadius(8)
@@ -62,7 +81,7 @@ struct AddressListPage {
       }
       .width('100%').layoutWeight(1).padding(10)
 
-      // 底部按钮 (保持不变)
+      // 底部按钮
       Button('新增地址', { type: ButtonType.Normal })
         .width('90%').height(50).backgroundColor('#0035AA').borderRadius(25).fontSize(18)
         .margin({ bottom: 20 })

@@ -1,65 +1,122 @@
 import router from '@ohos.router';
+import CoffeeApi, { ProductItem } from '../api/CoffeeApi';
+import promptAction from '@ohos.promptAction';
 
 @Entry
 @Component
 struct MyFavoritePage {
+  @StorageLink('token') token: string = '';
+
+  // 收藏列表数据
+  @State favoriteList: ProductItem[] = [];
+
+  // 页面显示时拉取数据
+  onPageShow() {
+    this.fetchFavorites();
+  }
+
+  async fetchFavorites() {
+    if (!this.token) {
+      promptAction.showToast({ message: '请先登录' });
+      return;
+    }
+    try {
+      const res = await CoffeeApi.findAllLike(this.token);
+      if (res.code === 200 && res.data) {
+        this.favoriteList = res.data;
+      } else {
+        // 如果没有数据或 code 不对，清空列表
+        this.favoriteList = [];
+      }
+    } catch (err) {
+      console.error('获取收藏列表失败');
+    }
+  }
+
+  // 取消收藏
+  async handleRemove(pid: string) {
+    try {
+      const res = await CoffeeApi.notLike(this.token, pid);
+      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+        promptAction.showToast({ message: '已取消收藏' });
+        // 重新拉取列表刷新
+        this.fetchFavorites();
+      } else {
+        promptAction.showToast({ message: res.msg || '操作失败' });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: '网络请求失败' });
+    }
+  }
+
   build() {
     Column() {
-      // 1. 顶部 Header (复用风格)
-      Stack({ alignContent: Alignment.Top }) {
-        Column().width('100%').height(120).backgroundColor('#0035AA')
-        Row() {
-          Text('< 返回')
-            .fontSize(16).fontColor(Color.White)
-            .onClick(() => router.back())
-          Text('我的收藏')
-            .fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White)
-            .layoutWeight(1).textAlign(TextAlign.Center).margin({ right: 40 })
-        }
-        .width('100%').height(50).padding({ left: 15, right: 15 })
+      // 顶部导航
+      Row() {
+        Text('< 返回').fontSize(16).fontColor('#0035AA').onClick(() => router.back())
+        Text('我的收藏').fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1).textAlign(TextAlign.Center).margin({ right: 40 })
       }
-      .height(60)
-      .width('100%')
+      .width('100%').height(50).padding({ left: 15, right: 15 }).backgroundColor(Color.White)
 
-      // 2. 白色卡片区域
-      Column() {
-        // 空状态容器
+      // 列表区域
+      if (this.favoriteList.length === 0) {
+        // 空状态
         Column() {
-          // --- 修改开始：使用容器模拟“假图片”占位 ---
-          Stack({ alignContent: Alignment.Center }) {
-            // 1. 灰色背景层
-            Column()
-              .width('100%')
-              .height('100%')
-              .backgroundColor('#F5F5F5') // 浅灰色背景
-              .borderRadius(8) // 加一点圆角
+          Text('暂无收藏商品').fontSize(16).fontColor('#999').margin({ top: 100 })
+        }.width('100%').layoutWeight(1)
+      } else {
+        List({ space: 10 }) {
+          ForEach(this.favoriteList, (item: ProductItem) => {
+            ListItem() {
+              Row() {
+                // 商品图片
+                Image(item.smallImg)
+                  .width(80).height(80).objectFit(ImageFit.Cover)
+                  .borderRadius(8).backgroundColor('#F5F5F5')
+                  .margin({ right: 10 })
 
-            // 2. 中间的占位图标 (用 Emoji 代替)
-            Text('🖼️') // 这里用星星代表收藏缺省，也可以用 '🖼️' 代表图片缺省
-              .fontSize(36)
-              .fontColor('#CCCCCC') // 浅灰色图标
-          }
-          .width(80)
-          .height(80)
-          .margin({ bottom: 15 })
-          // --- 修改结束 ---
+                // 商品信息
+                Column() {
+                  Text(item.name).fontSize(16).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(item.enname).fontSize(12).fontColor('#999').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 4 })
+                  Blank()
+                  Text(`¥${item.price}`).fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
+                }
+                .layoutWeight(1).height(80).alignItems(HorizontalAlign.Start)
+                .onClick(() => {
+                  // 点击跳转详情页
+                  router.pushUrl({ url: 'pages/ProductDetailPage', params: { pid: item.pid } })
+                })
 
-          Text('没有收藏数据!')
-            .fontSize(14)
-            .fontColor('#999')
+                // 删除按钮
+                Column() {
+                  Text('🗑️') // 这里可以用图片代替
+                    .fontSize(20)
+                    .fontColor('#999')
+                    .padding(10)
+                    .onClick(() => {
+                      // 弹窗确认
+                      AlertDialog.show({
+                        title: '提示',
+                        message: '确定取消收藏该商品吗？',
+                        primaryButton: { value: '取消', action: () => {} },
+                        secondaryButton: {
+                          value: '确定',
+                          fontColor: 'red',
+                          action: () => this.handleRemove(item.pid)
+                        }
+                      })
+                    })
+                }.height(80).justifyContent(FlexAlign.Center)
+
+              }
+              .width('100%').padding(10).backgroundColor(Color.White).borderRadius(8)
+            }
+          })
         }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
+        .width('100%').layoutWeight(1).padding(10)
       }
-      .width('100%')
-      .layoutWeight(1)
-      .backgroundColor(Color.White)
-      .borderRadius({ topLeft: 12, topRight: 12 })
-      .clip(true)
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor('#F5F5F5')
+    .width('100%').height('100%').backgroundColor('#F5F5F5')
   }
 }
