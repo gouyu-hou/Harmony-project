@@ -1,7 +1,7 @@
 import http from '@ohos.net.http';
 import { BusinessError } from '@ohos.base';
 
-const BASE_URL = 'https://apis.netstart.cn/coffee';
+const BASE_URL = 'https://kf.webxyq.com';
 
 class HttpUtil {
   /**
