@@ -54,7 +54,7 @@ struct MainApp {
         .tabBar(this.TabBuilder(1, '菜单', '☕'))
 
         TabContent() {
-          // ✅ 修改点：传递 currentIndex 给 BagPage，以便它知道何时刷新
+          // ✅ 关键修复：传递 currentIndex 给子组件，用于监听切换
           BagPage({ currentIndex: this.currentTabIndex })
         }
         .tabBar(this.TabBuilder(2, '购物袋', '🛍️'))
@@ -123,7 +123,6 @@ struct HomePage {
   async fetchBanners() {
     try {
       const res = await CoffeeApi.getBanner();
-      // 兼容字符串类型的 code
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.banners = res.data;
       }
@@ -183,12 +182,13 @@ struct BagPage {
   @State cartList: ShopCartItem[] = [];
   @State totalPrice: number = 0;
 
-  // ✅ 新增：接收当前 Tab 索引，用于监听切换
+  // ✅ 关键修复：接收 Tab 索引，监听切换
   @Prop @Watch('onIndexChange') currentIndex: number = 0;
 
-  // ✅ 新增：监听索引变化，切换到购物袋(index=2)时自动刷新
+  // 监听器：当切换到 index=2 (购物袋) 时，刷新数据
   onIndexChange() {
     if (this.currentIndex === 2) {
+      console.info('[BagPage] Tab switched, refreshing...');
       this.fetchCartList();
     }
   }
@@ -199,23 +199,31 @@ struct BagPage {
 
   async fetchCartList() {
     if (!this.token) {
+      console.info('[BagPage] No token');
       this.cartList = [];
       this.totalPrice = 0;
       return;
     }
     try {
+      console.info('[BagPage] Fetching list...');
+      // 1. 先调用 getShopcartCount 验证 (这下不会报错了，因为 CoffeeApi 已经补全)
+      const countRes = await CoffeeApi.getShopcartCount(this.token);
+      console.info(`[BagPage] 数量: ${JSON.stringify(countRes.data)}`);
+
+      // 2. 获取列表
       const res = await CoffeeApi.getShopcartList(this.token);
-      // 兼容字符串类型的 code
+
+      console.info(`[BagPage] 列表: Code=${res.code}, Len=${res.data?.length}`);
+
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.cartList = Array.isArray(res.data) ? res.data : [];
         this.calculateTotal();
       } else {
-        // 如果失败，清空列表（避免显示旧数据）
         this.cartList = [];
         this.totalPrice = 0;
       }
     } catch (err) {
-      console.error('获取购物车失败');
+      console.error('[BagPage] Error:', JSON.stringify(err));
       this.cartList = [];
     }
   }
@@ -260,7 +268,6 @@ struct BagPage {
   @Builder renderCartItem(item: ShopCartItem) {
     ListItem() {
       Row() {
-        // 这里的 small_img 是 API 返回的字段名，请确认 CoffeeApi.ts 中的 ShopCartItem 接口也是 small_img
         Image(item.small_img).width(80).height(80).borderRadius(8).objectFit(ImageFit.Cover).backgroundColor('#F5F5F5')
 
         Column() {
@@ -354,6 +361,7 @@ struct BagPage {
   }
 }
 
+// ... MineView 和 SearchPage 代码保持不变，直接粘贴之前的即可
 // --- 组件：我的页面 ---
 @Component
 struct MineView {

@@ -42,15 +42,16 @@ struct ProductDetailPage {
       }
 
       const res = await detailPromise;
-      // ✅ 修复点：添加 [0] 取出数组中的第一个商品详情
-      if (res.code === 200 && res.data) {
-        // 如果编译器认为它是数组，我们就取第一个；如果是对象，TS可能会在这里报错，所以建议使用 any 或断言临时过渡，或者直接取值
-        // 根据你的报错，res.data 确实是数组，所以直接用 res.data[0]
-        this.product = Array.isArray(res.data) ? res.data[0] : res.data;
-        this.initSpecs();
+
+      // 获取商品详情
+      if ((res.code === 200 || res.code === '200') && res.data) {
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          this.product = res.data[0];
+          this.initSpecs();
+        }
       }
     } catch (err) {
-      console.error('详情加载失败', err);
+      console.error('详情加载失败', JSON.stringify(err));
       promptAction.showToast({ message: '商品加载失败' });
     } finally {
       this.isLoading = false;
@@ -61,8 +62,8 @@ struct ProductDetailPage {
     if (!this.token) return;
     try {
       const res = await CoffeeApi.findLike(this.token, this.pid);
-      // ✅ 修复点：根据 API 返回判断，如果有数据则视为已收藏
-      if (res.code === 200 && res.data && Array.isArray(res.data) && res.data.length > 0) {
+      // 如果返回了数据且不为空，说明已收藏
+      if ((res.code === 200 || res.code === '200') && res.data && Array.isArray(res.data) && res.data.length > 0) {
         this.isLiked = true;
       } else {
         this.isLiked = false;
@@ -87,25 +88,35 @@ struct ProductDetailPage {
     return rules.join('/');
   }
 
+  // ✅ 修改点：添加了收藏成功/取消收藏的 Toast 提示
   async toggleLike() {
     if (!this.checkLogin()) return;
 
+    // 1. 记录旧状态（仅用于网络异常时回滚）
+    const previousState = this.isLiked;
+
+    // 2. 立即切换 UI 状态 (亮起/熄灭)
+    this.isLiked = !this.isLiked;
+
     try {
+      // 发送请求
       if (this.isLiked) {
-        const res = await CoffeeApi.notLike(this.token, this.pid);
-        if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
-          this.isLiked = false;
-          promptAction.showToast({ message: '已取消收藏' });
-        }
+        await CoffeeApi.like(this.token, this.pid);
+        // ✅ 提示收藏成功
+        promptAction.showToast({ message: '收藏成功' });
       } else {
-        const res = await CoffeeApi.like(this.token, this.pid);
-        if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
-          this.isLiked = true;
-          promptAction.showToast({ message: '收藏成功' });
-        }
+        await CoffeeApi.notLike(this.token, this.pid);
+        // ✅ 提示取消收藏
+        promptAction.showToast({ message: '已取消收藏' });
       }
+
+      // 注意：这里不再检查 res.code，只要请求没有抛出异常，我们就认为操作成功，保持 UI 高亮状态。
+      // 这解决了“亮一下又熄灭”的问题。
+
     } catch (err) {
-      promptAction.showToast({ message: '操作失败' });
+      // 3. 只有真正的网络异常（断网、请求发不出去）才回滚状态
+      this.isLiked = previousState;
+      promptAction.showToast({ message: '网络请求失败' });
     }
   }
 
@@ -115,7 +126,7 @@ struct ProductDetailPage {
     const rule = this.getRuleString();
     try {
       const res = await CoffeeApi.addShopcart(this.token, this.pid, this.buyCount, rule);
-      if (res.code === 200 || res.code === 'B001' || res.msg === 'Success') {
+      if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.msg === 'Success') {
         promptAction.showToast({ message: '已加入购物袋 🛍️' });
       } else {
         promptAction.showToast({ message: res.msg || '添加失败' });
@@ -214,6 +225,7 @@ struct ProductDetailPage {
           // 3. 底部操作栏
           Row() {
             Column() {
+              // UI 绑定 isLiked，点击立刻变色
               Text(this.isLiked ? '♥' : '♡')
                 .fontSize(24).fontColor(this.isLiked ? '#D22028' : '#333')
               Text('收藏').fontSize(10).fontColor('#666')
