@@ -184,15 +184,25 @@ struct HomePage {
       }
       .width('100%').padding({ left: 15, right: 15, top: 10, bottom: 10 }).backgroundColor(Color.White)
 
+      // 位置：HomePage 组件 -> build() -> Scroll() 内部
       Scroll() {
         Column() {
-          // Banner 轮播 (保持不变)
+          // --- Banner 轮播修改 ---
           if (this.banners.length > 0) {
             Swiper() {
               ForEach(this.banners, (item: BannerItem) => {
                 Image(item.bannerImg)
                   .width('100%').height(200).backgroundColor('#F0F0F0')
                   .borderRadius(8).objectFit(ImageFit.Cover)
+                // ✅ 新增：点击 Banner 跳转详情页
+                  .onClick(() => {
+                    if (item.pid) {
+                      router.pushUrl({
+                        url: 'pages/ProductDetailPage',
+                        params: { pid: item.pid }
+                      })
+                    }
+                  })
               }, (item: BannerItem, index: number) => item.pid ? `${item.pid}` : `${index}`)
             }
             .width('100%').height(200).autoPlay(true).indicator(true)
@@ -202,11 +212,10 @@ struct HomePage {
 
           Text('猜你喜欢').fontSize(18).fontWeight(FontWeight.Bold).width('100%').padding(15)
 
-          // 列表渲染
+          // 列表渲染 (保持不变，逻辑在 ProductGrid 中修改)
           if (this.hotProducts.length > 0) {
             ProductGrid({ products: this.hotProducts })
           } else {
-            // 加载中或无数据提示
             Column() {
               LoadingProgress().width(40).height(40).color('#0035AA')
               Text('加载数据中...').fontSize(12).fontColor('#999').margin({ top: 10 })
@@ -229,6 +238,24 @@ struct BagPage {
 
   @Prop @Watch('onIndexChange') currentIndex: number = 0;
 
+  // ✅✅✅ 新增：监听全局刷新信号
+  // 当 SettlementPage 将其设为 true 时，这里会自动触发 onRefreshCartChange
+  @StorageLink('refreshCart') @Watch('onRefreshCartChange') shouldRefresh: boolean = false;
+
+  // ✅✅✅ 新增：监听回调函数
+  onRefreshCartChange() {
+    if (this.shouldRefresh) {
+      console.info('【Debug】收到刷新信号，正在刷新购物袋...');
+      this.fetchCartList(); // 重新拉取数据
+
+      // 重置信号，防止重复触发 (设为 false)
+      // 注意：直接修改 @StorageLink 变量会同步回 AppStorage，下次支付成功再次变 true 时又能触发
+      setTimeout(() => {
+        this.shouldRefresh = false;
+      }, 100);
+    }
+  }
+
   onIndexChange() {
     if (this.currentIndex === 2) {
       this.fetchCartList();
@@ -239,6 +266,7 @@ struct BagPage {
     this.fetchCartList();
   }
 
+  // ... 下面的 fetchCartList, calculateTotal, handleCountChange 等保持不变 ...
   async fetchCartList() {
     if (!this.token) {
       this.cartList = [];
@@ -247,7 +275,6 @@ struct BagPage {
     }
     try {
       const res = await CoffeeApi.getShopcartList(this.token);
-      // 这里的判断逻辑保持你之前的宽容策略
       if (res.data && Array.isArray(res.data)) {
         this.cartList = res.data;
         this.calculateTotal();
@@ -256,15 +283,18 @@ struct BagPage {
         this.totalPrice = 0;
       }
     } catch (err) {
-      console.error('[BagPage] Error:', JSON.stringify(err));
+      console.error('[BagPage] 刷新购物车失败:', JSON.stringify(err));
       this.cartList = [];
+      this.totalPrice = 0;
     }
   }
 
   calculateTotal() {
     let total = 0;
     this.cartList.forEach((item) => {
-      total += item.price * item.count;
+      // 价格安全转换
+      const price = typeof item.price === 'string' ? parseFloat(item.price) : item.price;
+      total += price * item.count;
     });
     this.totalPrice = total;
   }
@@ -277,20 +307,13 @@ struct BagPage {
 
     try {
       const res: ApiResponse<null> = await CoffeeApi.updateShopcartCount(this.token, sid, newCount);
-
-      // 注意：这里增加打印，确认 res.code 到底是多少
       console.info('接口返回码:', res.code);
 
       if (res.code === 6000 || res.code === 200 || res.code === '200') {
-        // ✅ 核心修复：不要直接改 count，而是创建一个新对象替换掉旧对象
-        // 虽然 ArkTS 不支持 {...item}，但我们可以手动创建
         let newItem = this.cartList[index];
         newItem.count = newCount;
-
-        // 用 splice 替换，并且为了绝对保险，触发一次数组重排
         this.cartList.splice(index, 1, newItem);
-        this.cartList = [...this.cartList]; // 强制刷新整个列表
-
+        this.cartList = [...this.cartList];
         this.calculateTotal();
       } else {
         promptAction.showToast({ message: res.msg || '修改失败' });
@@ -300,20 +323,11 @@ struct BagPage {
     }
   }
 
-  // ✅✅✅ 修复点 2：删除逻辑
   async handleDelete(sid: string) {
     try {
-      // 注意：deleteShopcart 接口如果支持数组，这里传 [sid] 是对的
       const res: ApiResponse<null> = await CoffeeApi.deleteShopcart(this.token, [sid]);
-
-      // ✅ 关键修改：同样加上 code === 6000
-      if (res.code === 6000 || res.code === 200 || res.code === '200' || res.msg === 'Success') {
-
-        // 从本地数组移除
-        // 既然用了 @State 数组，filter 生成新数组赋值是肯定能触发刷新的
-        // 这里主要是之前 code 不对导致没执行
+      if (res.code === 7000 || res.code === 6000 || res.code === 200 || res.code === '200' || res.msg === 'Success') {
         this.cartList = this.cartList.filter(item => item.sid !== sid);
-
         this.calculateTotal();
         promptAction.showToast({ message: '已删除' });
       } else {
@@ -338,11 +352,9 @@ struct BagPage {
             Blank()
             Row() {
               Text('－').fontSize(15).fontColor('#0035AA').padding({ left: 10, right: 10 })
-              // 这里调用修复后的方法
                 .onClick(() => this.handleCountChange(item.sid, item.count - 1))
               Text(`${item.count}`).fontSize(14)
               Text('＋').fontSize(20).fontColor('#0035AA').padding({ left: 10, right: 10 })
-              // 这里调用修复后的方法
                 .onClick(() => this.handleCountChange(item.sid, item.count + 1))
             }
           }.width('100%')
@@ -365,39 +377,32 @@ struct BagPage {
 
   build() {
     Column() {
-      // 顶部标题
       Row() {
         Text('购物袋').fontSize(18).fontWeight(FontWeight.Bold)
       }
       .width('100%').height(50).justifyContent(FlexAlign.Center).backgroundColor(Color.White)
 
       if (!this.token) {
-        // 未登录视图...
         Column() {
-          // (这里保持你原本的代码不变)
           Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
           Text('您还没有登录哦').fontSize(14).fontColor('#999').margin({ top: 10 })
           Button('去登录', { type: ButtonType.Normal }).width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
             .onClick(() => { router.pushUrl({ url: 'pages/LoginPage' }) })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.cartList.length === 0) {
-        // 空购物车视图...
         Column() {
-          // (这里保持你原本的代码不变)
           Image($r('app.media.shopbag_bg')).width(200).height(200).objectFit(ImageFit.Contain)
           Text('购物袋空空如也').fontSize(14).fontColor('#999').margin({ top: 10 })
           Button('去逛逛', { type: ButtonType.Normal }).width(120).height(40).backgroundColor('#0035AA').borderRadius(20).margin({ top: 20 })
             .onClick(() => { promptAction.showToast({ message: '请点击底部菜单进行选购' }); })
         }.layoutWeight(1).justifyContent(FlexAlign.Center)
       } else {
-        // 购物车列表
         List({ space: 10 }) {
           ForEach(this.cartList, (item: ShopCartItem) => {
             this.renderCartItem(item)
-          }, (item: ShopCartItem) => `${item.sid}_${item.count}`) // 建议 Key 使用 sid 确保唯一
+          }, (item: ShopCartItem) => `${item.sid}_${item.count}`)
         }.layoutWeight(1).padding(10).width('100%')
 
-        // 底部结算栏
         Row() {
           Text(`应付合计: ¥${this.totalPrice}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
           Button('去结算', { type: ButtonType.Normal })
@@ -426,47 +431,59 @@ struct BagPage {
 // ... MineView 和 SearchPage 保持不变，请确保文件后半部分包含它们 ...
 // 为了代码完整性，这里补全剩余部分
 
+// entry/src/main/ets/pages/MainPage.ets
+
+// ... (前面的代码)
+
 @Component
 struct MineView {
   @StorageLink('token') token: string = '';
   @StorageLink('userInfo') userInfoStr: string = '{}';
 
-  // 【新增】定义状态变量存储个人中心数据
+  // 定义状态变量
   @State myData: MyData = { userBg: '' };
 
-  // 【新增】页面加载时调用接口
+  // ✅✅✅ 修改 1：同时调用两个接口
   aboutToAppear() {
     if (this.token) {
-      this.fetchMyData();
+      this.fetchMyData();     // 获取背景图
+      this.fetchUserInfo();   // 获取昵称、头像、签名
     }
   }
 
-  // 【新增】获取数据的方法
-  // 【修改】增强日志打印的获取数据方法
-  async fetchMyData() {
-    console.info('【Debug】准备调用 /findMy 接口...'); // 1. 调用前打印
+  // ✅✅✅ 新增方法：获取用户基本信息并更新全局缓存
+  async fetchUserInfo() {
+    try {
+      const res = await CoffeeApi.getUserInfo(this.token);
+      // 只要 code 是 200，就说明获取成功
+      if (res.code === 200 || res.code === '200') {
+        if (res.data) {
+          console.info('【Debug】获取用户信息成功:', res.data.nickName);
+          // 更新 AppStorage，这会自动刷新 this.user 以及页面上的显示
+          AppStorage.SetOrCreate('userInfo', JSON.stringify(res.data));
+        }
+      }
+    } catch (err) {
+      console.error('获取用户信息失败', JSON.stringify(err));
+    }
+  }
 
+  // 获取背景图的方法 (保持不变)
+  async fetchMyData() {
+    console.info('【Debug】准备调用 /findMy 接口...');
     try {
       const res = await CoffeeApi.findMy(this.token);
-
-      // 2. 打印接口返回的原始数据结构
-      console.info('【Debug】/findMy 接口返回结果:', JSON.stringify(res));
-
       if (res.code === 200 || res.code === '200') {
         if (res.data) {
           this.myData = res.data;
-          console.info('【Debug】个人信息更新成功，背景图URL:', this.myData.userBg); // 3. 成功后打印关键数据
-        } else {
-          console.warn('【Debug】接口调用成功，但 data 为空');
         }
-      } else {
-        console.warn('【Debug】接口调用失败 (业务逻辑)，Code:', res.code, 'Msg:', res.msg);
       }
     } catch (err) {
-      console.error('【Debug】/findMy 接口网络或代码异常:', JSON.stringify(err)); // 4. 异常打印
+      console.error('【Debug】/findMy 接口异常:', JSON.stringify(err));
     }
   }
 
+  // 计算属性 (保持不变)
   get user(): UserInfo {
     const defaultUser: UserInfo = { userId: '', nickName: '', userImg: '' };
     if (!this.userInfoStr || this.userInfoStr === '{}') {
@@ -484,33 +501,35 @@ struct MineView {
     Column() {
       Stack({ alignContent: Alignment.BottomStart }) {
 
-        // 【修改】将原本的纯色背景改为：有图片显示图片，没图片显示默认色
+        // 背景图 (保持不变)
         if (this.myData.userBg) {
           Image(this.myData.userBg)
-            .width('100%')
-            .height(200)
-            .objectFit(ImageFit.Cover)
-            .backgroundColor('#333') // 加载时的底色
+            .width('100%').height(200).objectFit(ImageFit.Cover).backgroundColor('#333')
         } else {
           Column().width('100%').height(200).backgroundColor('#333')
         }
 
         Row() {
           Stack({ alignContent: Alignment.Center }) {
-            Image(this.token && this.user?.userImg ? this.user.userImg : $r('app.media.home'))
+            // 头像：优先用 user.userImg (UserInfo接口更准)，其次用 myData
+            Image(this.token && (this.user?.userImg || this.myData.userImg) ? (this.user?.userImg || this.myData.userImg) : $r('app.media.home'))
               .width(60).height(60).borderRadius(30).backgroundColor(Color.White)
               .objectFit(ImageFit.Cover)
               .alt($r('app.media.home'))
           }.margin({ right: 15 })
 
           Column() {
-            Text(this.token ? (this.user?.nickName ?? '用户') : '点击登录')
+            // ✅✅✅ 修改 2：昵称显示逻辑
+            // 优先取 user.nickName (fetchUserInfo 更新的)，其次取 myData.nickName
+            Text(this.token ? (this.user?.nickName || this.myData.nickName || '用户') : '点击登录')
               .fontSize(18).fontWeight(FontWeight.Bold).fontColor(Color.White).margin({ bottom: 5 })
               .onClick(() => {
                 if (!this.token) router.pushUrl({ url: 'pages/LoginPage' });
               })
 
-            Text(this.token ? (this.user?.desc ?? '欢迎回来') : '登录享受更多权益')
+            // ✅✅✅ 修改 3：个性签名显示逻辑
+            // 优先取 user.desc
+            Text(this.token ? (this.user?.desc || '欢迎回来') : '登录享受更多权益')
               .fontSize(12).fontColor('#EEE')
           }
           .alignItems(HorizontalAlign.Start)
@@ -519,6 +538,7 @@ struct MineView {
       }
       .width('100%').height(200)
 
+      // ... 下面的菜单代码保持不变 ...
       Column() {
         this.MenuItem('个人资料', () => { if (this.checkLogin()) router.pushUrl({ url: 'pages/UserInfoPage' }) })
         Divider().color('#F5F5F5')
@@ -548,6 +568,7 @@ struct MineView {
     .width('100%').height('100%').backgroundColor('#F5F5F5')
   }
 
+  // ... (MenuItem, checkLogin, handleLogout 等方法保持不变)
   @Builder MenuItem(title: string, onClick: () => void) {
     Row() {
       Text(title).fontSize(16).fontColor('#333')
@@ -668,85 +689,85 @@ struct SearchPage {
 
 // --- 组件：商品网格 ---
 // --- 组件：商品网格 ---
+// 位置：文件最底部
 @Component
 struct ProductGrid {
   @Prop products: Product[] = [];
 
   build() {
-    Grid() {
+    // ✅ 修改1：使用 Flex 替换 Grid，解决显示不全问题
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
       ForEach(this.products, (item: Product) => {
-        GridItem() {
-          Column() {
-            Stack({ alignContent: Alignment.TopStart }) {
-              // ✅ 修改：使用 Image 组件显示 item.smallImg
-              // 如果没有图片，显示默认灰色背景
-              Image(item.smallImg)
-                .width('100%')
-                .height(150)
-                .objectFit(ImageFit.Contain) // 保持比例，或者用 Cover
-                .backgroundColor('#F9F9F9')
-                .borderRadius({ topLeft: 8, topRight: 8 })
-                // 加载失败时的占位图 (可选)
-                .alt($r('app.media.shopbag_bg'))
+        Column() {
+          // 1. 图片部分
+          Stack({ alignContent: Alignment.TopStart }) {
+            Image(item.smallImg)
+              .width('100%')
+              .height(150)
+              .objectFit(ImageFit.Contain)
+              .backgroundColor('#F9F9F9')
+              .borderRadius({ topLeft: 8, topRight: 8 })
+              .alt($r('app.media.shopbag_bg'))
 
-              if (item.isHot) {
-                Text('热卖')
-                  .fontSize(10)
-                  .fontColor(Color.White)
-                  .backgroundColor('#FF4400')
-                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                  .borderRadius({ topLeft: 8, bottomRight: 8 })
-              }
+            if (item.isHot) {
+              Text('热卖')
+                .fontSize(10)
+                .fontColor(Color.White)
+                .backgroundColor('#FF4400')
+                .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .borderRadius({ topLeft: 8, bottomRight: 8 })
             }
-
-            Column() {
-              Text(item.name)
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .fontColor('#333')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%')
-
-              Text(item.enName)
-                .fontSize(12)
-                .fontColor('#999')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .width('100%')
-                .margin({ top: 2, bottom: 10 })
-
-              Row() {
-                Text(`¥${item.price.toFixed(2)}`)
-                  .fontSize(16)
-                  .fontColor('#D22028')
-                  .fontWeight(FontWeight.Bold)
-
-                Text('⊕')
-                  .fontSize(24)
-                  .fontColor('#0035AA')
-                  .onClick(() => {
-                    router.pushUrl({
-                      url: 'pages/ProductDetailPage',
-                      params: { pid: item.id }
-                    })
-                  })
-              }
-              .width('100%').justifyContent(FlexAlign.SpaceBetween)
-            }
-            .padding(10).backgroundColor(Color.White)
           }
-          .borderRadius(8)
-          .backgroundColor(Color.White)
-          .shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
+
+          // 2. 文字与价格部分
+          Column() {
+            Text(item.name)
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#333')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+
+            Text(item.enName)
+              .fontSize(12)
+              .fontColor('#999')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+              .margin({ top: 2, bottom: 10 })
+
+            Row() {
+              Text(`¥${item.price.toFixed(2)}`)
+                .fontSize(16)
+                .fontColor('#D22028')
+                .fontWeight(FontWeight.Bold)
+
+              // 只是视觉符号，点击事件已提升到整个卡片
+              Text('⊕')
+                .fontSize(24)
+                .fontColor('#0035AA')
+            }
+            .width('100%').justifyContent(FlexAlign.SpaceBetween)
+          }
+          .padding(10).backgroundColor(Color.White)
         }
+        .width('48%') // 设置宽度适配两列布局
+        .borderRadius(8)
+        .backgroundColor(Color.White)
+        .margin({ bottom: 10 })
+        .shadow({ radius: 4, color: '#1A000000', offsetX: 0, offsetY: 2 })
+        // ✅ 修改2：将点击事件绑定在整个 Item (Column) 上
+        .onClick(() => {
+          router.pushUrl({
+            url: 'pages/ProductDetailPage',
+            params: { pid: item.id }
+          })
+        })
       }, (item: Product) => `${item.id}`)
     }
-    .columnsTemplate('1fr 1fr')
-    .columnsGap(10)
-    .rowsGap(10)
-    .padding(10)
     .width('100%')
-    .height('100%')
+    .padding(10)
+    // 注意：不要设置 .height('100%')，让内容自动撑开
   }
 }

@@ -94,10 +94,18 @@ struct SettlementPage {
         this.currentAddress.name
       );
 
-      if (res.code === 200 || res.code === '200' || res.code === 'B001') {
+      if (res.code === 200 || res.code === '200' || res.code === 'B001'|| res.code === 60000) {
         promptAction.showToast({ message: '支付成功！☕' });
-        // 支付成功后，跳转到订单页，或者清空购物车逻辑（后端通常会处理）
-        router.replaceUrl({ url: 'pages/MyOrderPage' });
+
+        // ✅✅✅ 新增：设置全局标记，通知购物袋刷新
+        AppStorage.SetOrCreate('refreshCart', true);
+
+        // 支付成功后跳转
+        // ✅✅✅ 关键修改 2：使用 router.back() 返回上一页（购物袋），而不是跳转去订单页
+        // 这样你能立即看到购物袋变空的效果
+        setTimeout(() => {
+          router.back();
+        }, 500);
       } else {
         promptAction.showToast({ message: res.msg || '支付失败' });
       }

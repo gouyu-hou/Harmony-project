@@ -92,8 +92,7 @@ class CoffeeApi {
     // 1. 获取有效数据：优先取 result，其次取 data
     const validData = res.result !== undefined ? res.result : res.data;
 
-    // ✅✅✅ 关键修复点：只要有数据，就强制修正 code 为 200
-    // 你的代码中可能漏掉了这个判断，导致 400 状态码直接传给了 UI，导致列表不显示
+    // ✅ 只要有数据，就强制修正 code 为 200
     if (validData !== undefined && validData !== null) {
       return {
         code: 200, // 强制视为成功
@@ -170,13 +169,31 @@ class CoffeeApi {
   }
 
   // --- 用户 & 安全接口 ---
+
+  // ✅ 修复 1：移除 unknown 断言，改为显式对象构造
   static async getUserInfo(token: string): Promise<ApiResponse<UserInfo>> {
     const res = await HttpUtil.get<RawResponse<UserInfo[]>>(`/findAccountInfo?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     const normalized = CoffeeApi.normalize(res);
-    if ((normalized.code === 200 || normalized.code === '200') && Array.isArray(normalized.data) && normalized.data.length > 0) {
-      return { ...normalized, data: normalized.data[0] } as unknown as ApiResponse<UserInfo>;
+
+    // 如果返回的是数组，取第一个元素作为 UserInfo 返回
+    if ((normalized.code === 200 || normalized.code === '200') && normalized.data && Array.isArray(normalized.data) && normalized.data.length > 0) {
+      const userData: UserInfo = normalized.data[0];
+      return {
+        code: normalized.code,
+        msg: normalized.msg,
+        data: userData,
+        result: userData,
+        token: normalized.token
+      };
     }
-    return normalized as unknown as ApiResponse<UserInfo>;
+
+    // 否则返回空数据结构
+    return {
+      code: normalized.code,
+      msg: normalized.msg,
+      data: undefined,
+      token: normalized.token
+    };
   }
 
   static async updatePassword(token: string, oldPassword: string, password: string): Promise<ApiResponse<string>> {
@@ -245,9 +262,8 @@ class CoffeeApi {
     return CoffeeApi.normalize(res);
   }
 
-  // 2. 获取购物车商品条目 (列表) - 核心
+  // 2. 获取购物车商品条目 (列表)
   static async getShopcartList(token: string): Promise<ApiResponse<ShopCartItem[]>> {
-    // 修改这里：将 shopcartRows 改为 findAllShopcart
     const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/findAllShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
@@ -259,8 +275,9 @@ class CoffeeApi {
   }
 
   // 4. 查询用户所有购物车条数
-  static async findAllShopcart(token: string): Promise<ApiResponse<any>> {
-    const res = await HttpUtil.get<RawResponse<any>>(`/findAllShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
+  // ✅ 修复 2：将 ApiResponse<any> 替换为明确的 ApiResponse<ShopCartItem[]>
+  static async findAllShopcart(token: string): Promise<ApiResponse<ShopCartItem[]>> {
+    const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(`/findAllShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     return CoffeeApi.normalize(res);
   }
 
@@ -313,27 +330,37 @@ class CoffeeApi {
 
   /**
    * 获取个人中心信息
-   * 修复：接口返回的是数组，需要提取第0项
+   * ✅ 修复 3：移除 unknown 断言，改为显式对象构造
    */
   static async findMy(token: string): Promise<ApiResponse<MyData>> {
-    // 1. 泛型改为 MyData[] 接收数组
+    // 泛型改为 MyData[] 接收数组
     const res = await HttpUtil.get<RawResponse<MyData[]>>(`/findMy?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}`);
     const normalized = CoffeeApi.normalize(res);
 
-    // 2. 判断并提取数组第一项
-    if ((normalized.code === 200 || normalized.code === '200') && Array.isArray(normalized.data) && normalized.data.length > 0) {
-      return { ...normalized, data: normalized.data[0] } as unknown as ApiResponse<MyData>;
+    // 判断并提取数组第一项
+    if ((normalized.code === 200 || normalized.code === '200') && normalized.data && Array.isArray(normalized.data) && normalized.data.length > 0) {
+      const myData: MyData = normalized.data[0];
+      return {
+        code: normalized.code,
+        msg: normalized.msg,
+        data: myData,
+        result: myData,
+        token: normalized.token
+      };
     }
 
-    return normalized as unknown as ApiResponse<MyData>;
+    return {
+      code: normalized.code,
+      msg: normalized.msg,
+      data: undefined,
+      token: normalized.token
+    };
   }
 
   /**
    * 提交订单页面 - 查询需要购买的商品详情
-   * 注意：参数 sids 需要 JSON 序列化
    */
   static async commitShopcart(token: string, sids: string[]): Promise<ApiResponse<ShopCartItem[]>> {
-    // GET 请求，sids 需要转为 JSON 字符串并 encode
     const sidsStr = encodeURIComponent(JSON.stringify(sids));
     const res = await HttpUtil.get<RawResponse<ShopCartItem[]>>(
       `/commitShopcart?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&sids=${sidsStr}`
@@ -341,13 +368,10 @@ class CoffeeApi {
     return CoffeeApi.normalize(res);
   }
 
-  // entry/src/main/ets/api/CoffeeApi.ts
-
   /**
    * 根据 AID 查询单条地址详情
    */
   static async findAddressByAid(token: string, aid: string): Promise<ApiResponse<AddressItem[]>> {
-    // 接口返回的通常是数组，我们需要在业务层取第一个
     const res = await HttpUtil.get<RawResponse<AddressItem[]>>(`/findAddressByAid?appkey=${APP_KEY}&tokenString=${encodeURIComponent(token)}&aid=${aid}`);
     return CoffeeApi.normalize(res);
   }

@@ -2,17 +2,24 @@ import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
 import CoffeeApi, { ProductDetail, ApiResponse } from '../api/CoffeeApi';
 
+// 扩展接口以支持 API 返回的额外字段 (如 milk)
+interface ProductDetailFull extends ProductDetail {
+  milk?: string;
+  milk_desc?: string;
+}
+
 @Entry
 @Component
 struct ProductDetailPage {
   @State pid: string = '';
-  @State product: ProductDetail | null = null;
+  @State product: ProductDetailFull | null = null;
   @State isLoading: boolean = true;
 
-  // 规格选择状态
+  // 动态规格状态
   @State currentTemp: string = '';
   @State currentSugar: string = '';
   @State currentCream: string = '';
+  @State currentMilk: string = ''; // 新增：奶选项
   @State buyCount: number = 1;
 
   // 收藏状态
@@ -43,11 +50,10 @@ struct ProductDetailPage {
 
       const res = await detailPromise;
 
-      // 获取商品详情
       if ((res.code === 200 || res.code === '200') && res.data) {
         if (Array.isArray(res.data) && res.data.length > 0) {
-          this.product = res.data[0];
-          this.initSpecs();
+          this.product = res.data[0] as ProductDetailFull;
+          this.initSpecs(); // 初始化默认选中项
         }
       }
     } catch (err) {
@@ -58,12 +64,17 @@ struct ProductDetailPage {
     }
   }
 
+  // ✅ 修复点：解决 Type 'undefined' is not assignable to type 'boolean' 报错
   async checkLikeStatus() {
     if (!this.token) return;
     try {
       const res = await CoffeeApi.findLike(this.token, this.pid);
-      // 如果返回了数据且不为空，说明已收藏
-      if ((res.code === 200 || res.code === '200') && res.data && Array.isArray(res.data) && res.data.length > 0) {
+
+      // 使用严格的 if 判断，确保只赋值 true 或 false
+      if ((res.code === 200 || res.code === '200') &&
+      res.data &&
+      Array.isArray(res.data) &&
+        res.data.length > 0) {
         this.isLiked = true;
       } else {
         this.isLiked = false;
@@ -75,9 +86,11 @@ struct ProductDetailPage {
 
   initSpecs() {
     if (!this.product) return;
+    // 取斜杠前的第一个选项作为默认值
     if (this.product.tem) this.currentTemp = this.product.tem.split('/')[0];
     if (this.product.sugar) this.currentSugar = this.product.sugar.split('/')[0];
     if (this.product.cream) this.currentCream = this.product.cream.split('/')[0];
+    if (this.product.milk) this.currentMilk = this.product.milk.split('/')[0];
   }
 
   getRuleString(): string {
@@ -85,36 +98,24 @@ struct ProductDetailPage {
     if (this.currentTemp) rules.push(this.currentTemp);
     if (this.currentSugar) rules.push(this.currentSugar);
     if (this.currentCream) rules.push(this.currentCream);
+    if (this.currentMilk) rules.push(this.currentMilk);
     return rules.join('/');
   }
 
-  // ✅ 修改点：添加了收藏成功/取消收藏的 Toast 提示
   async toggleLike() {
     if (!this.checkLogin()) return;
-
-    // 1. 记录旧状态（仅用于网络异常时回滚）
     const previousState = this.isLiked;
-
-    // 2. 立即切换 UI 状态 (亮起/熄灭)
     this.isLiked = !this.isLiked;
 
     try {
-      // 发送请求
       if (this.isLiked) {
         await CoffeeApi.like(this.token, this.pid);
-        // ✅ 提示收藏成功
         promptAction.showToast({ message: '收藏成功' });
       } else {
         await CoffeeApi.notLike(this.token, this.pid);
-        // ✅ 提示取消收藏
         promptAction.showToast({ message: '已取消收藏' });
       }
-
-      // 注意：这里不再检查 res.code，只要请求没有抛出异常，我们就认为操作成功，保持 UI 高亮状态。
-      // 这解决了“亮一下又熄灭”的问题。
-
     } catch (err) {
-      // 3. 只有真正的网络异常（断网、请求发不出去）才回滚状态
       this.isLiked = previousState;
       promptAction.showToast({ message: '网络请求失败' });
     }
@@ -124,21 +125,16 @@ struct ProductDetailPage {
     if (!this.checkLogin()) return;
 
     const rule = this.getRuleString();
-    console.info(`【Debug】正在加入购物车: PID=${this.pid}, Count=${this.buyCount}, Rule=${rule}`); // 👈 新增日志
+    console.info(`【Debug】加入购物车: PID=${this.pid}, Count=${this.buyCount}, Rule=${rule}`);
 
     try {
       const res = await CoffeeApi.addShopcart(this.token, this.pid, this.buyCount, rule);
-
-      console.info('【Debug】加入购物车接口返回: ' + JSON.stringify(res)); // 👈 新增日志
-
-      // 宽松判断条件，兼容各种成功码
       if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.code === 3000 || res.msg === 'Success') {
         promptAction.showToast({ message: '已加入购物袋 🛍️' });
       } else {
         promptAction.showToast({ message: res.msg || '添加失败' });
       }
     } catch (err) {
-      console.error('【Debug】加入购物车异常: ' + JSON.stringify(err));
       promptAction.showToast({ message: '网络请求失败' });
     }
   }
@@ -186,21 +182,46 @@ struct ProductDetailPage {
                   }.alignItems(HorizontalAlign.Start)
 
                   Blank()
-                  Text(`¥${this.product.price}`).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#D22028')
+                  // 兼容 string 或 number 类型的价格
+                  Text(`¥${Number(this.product.price).toFixed(2)}`).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#D22028')
                 }
                 .width('100%').margin({ top: 15, bottom: 15 })
 
                 Divider().color('#EEE')
 
-                // 规格选择区
+                // ✅ 动态规格区域 - 使用 SpecView 组件解决点击无响应问题
+
                 if (this.product.tem) {
-                  this.SpecSection('温度', this.product.tem.split('/'), this.currentTemp, (val: string) => this.currentTemp = val)
+                  SpecView({
+                    title: this.product.tem_desc || '温度', // 优先用接口返回的标题
+                    options: this.product.tem.split('/'),
+                    selected: $currentTemp // 双向绑定
+                  })
                 }
+
                 if (this.product.sugar) {
-                  this.SpecSection('糖度', this.product.sugar.split('/'), this.currentSugar, (val: string) => this.currentSugar = val)
+                  SpecView({
+                    title: this.product.sugar_desc || '糖度',
+                    options: this.product.sugar.split('/'),
+                    selected: $currentSugar
+                  })
                 }
+
                 if (this.product.cream) {
-                  this.SpecSection('其他', this.product.cream.split('/'), this.currentCream, (val: string) => this.currentCream = val)
+                  SpecView({
+                    title: this.product.cream_desc || '奶油',
+                    options: this.product.cream.split('/'),
+                    selected: $currentCream
+                  })
+                }
+
+                // 奶 (Milk) 选项支持
+                if (this.product.milk) {
+                  SpecView({
+                    title: this.product.milk_desc || '奶',
+                    options: this.product.milk.split('/'),
+                    selected: $currentMilk
+                  })
                 }
 
                 Divider().color('#EEE').margin({ top: 10, bottom: 10 })
@@ -232,7 +253,6 @@ struct ProductDetailPage {
           // 3. 底部操作栏
           Row() {
             Column() {
-              // UI 绑定 isLiked，点击立刻变色
               Text(this.isLiked ? '♥' : '♡')
                 .fontSize(24).fontColor(this.isLiked ? '#D22028' : '#333')
               Text('收藏').fontSize(10).fontColor('#666')
@@ -257,20 +277,32 @@ struct ProductDetailPage {
     }
     .width('100%').height('100%').backgroundColor('#F9F9F9')
   }
+}
 
-  @Builder SpecSection(title: string, options: string[], current: string, onSelect: (val: string) => void) {
+// ✅ 独立组件 SpecView：解决 UI 状态不更新的核心
+@Component
+struct SpecView {
+  @Prop title: string;
+  @Prop options: string[];
+  @Link selected: string; // 关键：使用 @Link 实现双向绑定
+
+  build() {
     Column() {
-      Text(title).fontSize(14).fontColor('#333').margin({ top: 10, bottom: 8 })
+      Text(this.title).fontSize(14).fontColor('#333').margin({ top: 10, bottom: 8 })
       Flex({ wrap: FlexWrap.Wrap }) {
-        ForEach(options, (opt: string) => {
+        ForEach(this.options, (opt: string) => {
           Text(opt)
             .fontSize(12)
-            .fontColor(current === opt ? Color.White : '#666')
-            .backgroundColor(current === opt ? '#0035AA' : '#F0F0F0')
+            // 动态样式：根据 selected 改变颜色
+            .fontColor(this.selected === opt ? Color.White : '#666')
+            .backgroundColor(this.selected === opt ? '#0035AA' : '#F0F0F0')
             .padding({ left: 15, right: 15, top: 6, bottom: 6 })
             .borderRadius(15)
             .margin({ right: 10, bottom: 10 })
-            .onClick(() => onSelect(opt))
+            // 点击更新 selected，父组件会自动感知
+            .onClick(() => {
+              this.selected = opt;
+            })
         }, (item: string) => item)
       }
     }.alignItems(HorizontalAlign.Start).width('100%')

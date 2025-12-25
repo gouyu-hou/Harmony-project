@@ -11,8 +11,8 @@ const TEXT_GRAY = '#999999';
 @Component
 struct LoginPage {
   @State isForgotPasswordPage: boolean = false;
-  @State loginPhone: string = '13434711088'; // 预填方便测试
-  @State loginPassword: string = '1111';
+  @State loginPhone: string = ''; // 预填方便测试
+  @State loginPassword: string = '';
 
   // 注册弹窗
   dialogController: CustomDialogController = new CustomDialogController({

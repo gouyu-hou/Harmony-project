@@ -154,7 +154,7 @@ struct MyOrderPage {
       const response = res as Object as BasicResponse;
       const code = response.code;
 
-      if (code == 200 || code == '200' || code == 70000 || code == '70000') {
+      if (code == 200 || code == '200' || code == 70000 || code == '70000' || code == 90000 || code == '90000') {
 
         // 🔥 1. 找到索引
         const index = this.orderList.findIndex(item => item.oid === oid);
@@ -180,33 +180,16 @@ struct MyOrderPage {
       const response = res as Object as BasicResponse;
       const code = response.code;
 
-      if (code == 200 || code == '200' || code == 70000 || code == '70000') {
+      if (code == 200 || code == '200' || code == 70000 || code == '70000' || code == 80000 || code == '80000') {
 
         const index = this.orderList.findIndex(item => item.oid === oid);
 
+        // 🔥 1. 找到索引
+        // const index = this.orderList.findIndex(item => item.oid === oid);
         if (index !== -1) {
-          if (this.currentStatus === 1) {
-            // 场景A：如果在“进行中”Tab，收货后它就不属于这里了 -> 直接移除
-            this.orderList.splice(index, 1);
-          } else {
-            // 场景B：如果在“全部”Tab，它还在列表里，但状态变了
-
-            // 🚫 避免使用 const newObj = { ...oldObj } (严格模式报错)
-            // ✅ 手动构建新对象，只修改 status
-            const oldItem = this.orderList[index];
-            const newItem: OrderItem = {
-              oid: oldItem.oid,
-              status: 2, // 状态改为已完成
-              date: oldItem.date,
-              amount: oldItem.amount,
-              address: oldItem.address,
-              products: oldItem.products
-            };
-
-            // 🔥 使用 splice(index, 1, newItem) 替换元素
-            // 这会强制 UI 认为该行数据已更新，立即重绘按钮
-            this.orderList.splice(index, 1, newItem);
-          }
+          // 🔥 2. 使用 splice 直接从数组中移除
+          // 相比 filter，splice 是原地变异操作，ArkUI 能够精确捕捉并立即执行删除动画/刷新
+          this.orderList.splice(index, 1);
         }
 
         promptAction.showToast({ message: '确认收货成功' });
