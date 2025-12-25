@@ -21,12 +21,20 @@ interface RawDbOrder {
   userId: string;
 }
 
+// 基础响应接口
+interface BasicResponse {
+  code: number | string;
+  msg?: string;
+  data?: Object;
+  result?: Object;
+}
+
 @Entry
 @Component
 struct MyOrderPage {
   @StorageLink('token') token: string = '';
 
-  @State currentStatus: number = 0;
+  @State currentStatus: number = 0; // 0:全部, 1:进行中, 2:已完成
   @State orderList: OrderItem[] = [];
   @State isLoading: boolean = false;
 
@@ -34,22 +42,22 @@ struct MyOrderPage {
     this.fetchOrders(this.currentStatus);
   }
 
-  // 2. 数据清洗函数 (保持不变)
+  // 2. 数据清洗函数 (已修复字面量类型报错)
   normalizeOrderData(flatList: RawDbOrder[]): OrderItem[] {
     const orderMap = new Map<string, OrderItem>();
 
     flatList.forEach((item) => {
       if (!orderMap.has(item.oid)) {
-        orderMap.set(item.oid, {
+        // 显式声明类型，解决 arkts-no-untyped-obj-literals
+        const newOrder: OrderItem = {
           oid: item.oid,
           status: item.status,
           date: item.createdAt || item.updatedAt,
           amount: 0,
           address: item.address,
-          phone: item.phone,
-          receiver: item.receiver,
-          products: [] as OrderProduct[]
-        } as OrderItem);
+          products: []
+        };
+        orderMap.set(item.oid, newOrder);
       }
 
       const order = orderMap.get(item.oid);
@@ -59,14 +67,16 @@ struct MyOrderPage {
         const itemTotalPrice = unitPrice * item.count;
         order.amount += itemTotalPrice;
 
-        order.products.push({
+        // 显式声明类型
+        const product: OrderProduct = {
           pid: item.pid,
           name: item.name,
           smallImg: item.smallImg,
           price: unitPrice,
           count: item.count,
           rule: item.rule
-        });
+        };
+        order.products.push(product);
       }
     });
 
@@ -82,44 +92,27 @@ struct MyOrderPage {
     });
   }
 
-  // 3. ✅【暴力查找】提取订单数组
-  // 不管包了几层，只要找到 result 是个数组，就把它挖出来
+  // 3. 提取订单数组
   findOrderArrayInObject(obj: Object): RawDbOrder[] | null {
     if (!obj) return null;
-
-    // 强制转换为 KV 结构方便访问
     const root = obj as Record<string, Object>;
 
-    // 策略 1: 直接看最外层有没有 result 且是数组 (对应标准 API)
-    // 结构: { code: 70000, result: [...] }
     if (root['result'] && Array.isArray(root['result'])) {
-      console.info('[MyOrderPage] 命中策略1: root.result 是数组');
       return root['result'] as RawDbOrder[];
     }
-
-    // 策略 2: 看看 data 里面有没有 result (对应常见的 Wrapper 结构)
-    // 结构: { code: 200, data: { code: 70000, result: [...] } }
     if (root['data']) {
       let dataObj = root['data'];
-      // 如果 data 是字符串，尝试解开
       if (typeof dataObj === 'string') {
         try { dataObj = JSON.parse(dataObj); } catch (e) {}
       }
-
       const innerData = dataObj as Record<string, Object>;
       if (innerData && innerData['result'] && Array.isArray(innerData['result'])) {
-        console.info('[MyOrderPage] 命中策略2: root.data.result 是数组');
         return innerData['result'] as RawDbOrder[];
       }
-
-      // 策略 3: data 本身就是数组?
       if (Array.isArray(dataObj)) {
-        console.info('[MyOrderPage] 命中策略3: root.data 本身是数组');
         return dataObj as RawDbOrder[];
       }
     }
-
-    // 策略 4: 看看 result 字段里面有没有 result (对应某些嵌套结构)
     if (root['result']) {
       let resultObj = root['result'];
       if (typeof resultObj === 'string') {
@@ -127,43 +120,25 @@ struct MyOrderPage {
       }
       const innerResult = resultObj as Record<string, Object>;
       if (innerResult && innerResult['result'] && Array.isArray(innerResult['result'])) {
-        console.info('[MyOrderPage] 命中策略4: root.result.result 是数组');
         return innerResult['result'] as RawDbOrder[];
       }
     }
-
     return null;
   }
 
-  // 4. 获取订单
   async fetchOrders(status: number) {
     this.isLoading = true;
     this.orderList = [];
 
     try {
-      // 1. 获取原始对象 (HttpUtil 已经 parse 过了)
       const rawRes = await CoffeeApi.findOrder(this.token, status);
-
-      console.info('[MyOrderPage] API 响应类型: ' + typeof rawRes);
-
-      // 🔍 调试必杀技：如果失败，可以在 Log 里看到真实数据结构
-      // console.info('[MyOrderPage] 真实数据结构: ' + JSON.stringify(rawRes));
-
-      // 2. 调用暴力查找函数
       const targetList = this.findOrderArrayInObject(rawRes as Object);
 
       if (targetList && targetList.length > 0) {
-        console.info('[MyOrderPage] 成功提取到订单条数: ' + targetList.length);
         this.orderList = this.normalizeOrderData(targetList);
-      } else if (targetList && targetList.length === 0) {
-        console.info('[MyOrderPage] 提取到了数组，但是是空的');
-        this.orderList = [];
       } else {
-        console.warn('[MyOrderPage] 未能在响应中找到订单数组 (result)');
-        // 如果还不行，打开上面的 JSON.stringify 看看到底藏在哪
         this.orderList = [];
       }
-
     } catch (err) {
       console.error('[MyOrderPage] Error:', JSON.stringify(err as Object));
       promptAction.showToast({ message: '获取订单失败' });
@@ -172,32 +147,72 @@ struct MyOrderPage {
     }
   }
 
-  // ... handleReceive 和 handleDelete ...
-  async handleReceive(oid: string) {
+  // ✅ 核心修复：删除订单逻辑
+  async handleDelete(oid: string) {
     try {
-      const res = await CoffeeApi.receiveOrder(this.token, oid);
-      // 简单宽容判断
-      const str = JSON.stringify(res);
-      if (str.includes('200') || str.includes('success')) {
-        promptAction.showToast({ message: '确认收货成功' });
-        this.fetchOrders(this.currentStatus);
+      const res = await CoffeeApi.removeOrder(this.token, oid);
+      const response = res as Object as BasicResponse;
+      const code = response.code;
+
+      if (code == 200 || code == '200' || code == 70000 || code == '70000') {
+
+        // 🔥 1. 找到索引
+        const index = this.orderList.findIndex(item => item.oid === oid);
+        if (index !== -1) {
+          // 🔥 2. 使用 splice 直接从数组中移除
+          // 相比 filter，splice 是原地变异操作，ArkUI 能够精确捕捉并立即执行删除动画/刷新
+          this.orderList.splice(index, 1);
+        }
+
+        promptAction.showToast({ message: '删除成功' });
       } else {
-        promptAction.showToast({ message: '操作失败' });
+        promptAction.showToast({ message: response.msg || '删除失败' });
       }
     } catch (err) {
       promptAction.showToast({ message: '网络异常' });
     }
   }
 
-  async handleDelete(oid: string) {
+  // ✅ 核心修复：确认收货逻辑
+  async handleReceive(oid: string) {
     try {
-      const res = await CoffeeApi.removeOrder(this.token, oid);
-      const str = JSON.stringify(res);
-      if (str.includes('200') || str.includes('success')) {
-        promptAction.showToast({ message: '删除成功' });
-        this.fetchOrders(this.currentStatus);
+      const res = await CoffeeApi.receiveOrder(this.token, oid);
+      const response = res as Object as BasicResponse;
+      const code = response.code;
+
+      if (code == 200 || code == '200' || code == 70000 || code == '70000') {
+
+        const index = this.orderList.findIndex(item => item.oid === oid);
+
+        if (index !== -1) {
+          if (this.currentStatus === 1) {
+            // 场景A：如果在“进行中”Tab，收货后它就不属于这里了 -> 直接移除
+            this.orderList.splice(index, 1);
+          } else {
+            // 场景B：如果在“全部”Tab，它还在列表里，但状态变了
+
+            // 🚫 避免使用 const newObj = { ...oldObj } (严格模式报错)
+            // ✅ 手动构建新对象，只修改 status
+            const oldItem = this.orderList[index];
+            const newItem: OrderItem = {
+              oid: oldItem.oid,
+              status: 2, // 状态改为已完成
+              date: oldItem.date,
+              amount: oldItem.amount,
+              address: oldItem.address,
+              products: oldItem.products
+            };
+
+            // 🔥 使用 splice(index, 1, newItem) 替换元素
+            // 这会强制 UI 认为该行数据已更新，立即重绘按钮
+            this.orderList.splice(index, 1, newItem);
+          }
+        }
+
+        promptAction.showToast({ message: '确认收货成功' });
+
       } else {
-        promptAction.showToast({ message: '删除失败' });
+        promptAction.showToast({ message: response.msg || '操作失败' });
       }
     } catch (err) {
       promptAction.showToast({ message: '网络异常' });
@@ -206,97 +221,152 @@ struct MyOrderPage {
 
   @Builder OrderItemView(item: OrderItem) {
     Column() {
+      // 头部
       Row() {
-        Text(`订单号: ${item.oid}`).fontSize(12).fontColor('#999')
-        Blank()
+        Text(`订单号: ${item.oid}`)
+          .fontSize(12)
+          .fontColor('#999')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+
         Text(item.status === 2 ? '已完成' : '进行中')
           .fontSize(14)
           .fontColor(item.status === 2 ? '#999' : '#D22028')
+          .margin({ left: 8 })
       }
-      .width('100%').padding({ bottom: 10 })
+      .width('100%')
+      .padding({ bottom: 8 })
 
       Divider().color('#F5F5F5')
 
+      // 商品列表
       Column() {
         ForEach(item.products, (prod: OrderProduct) => {
           Row() {
             Image(prod.smallImg)
-              .width(60).height(60).borderRadius(4)
+              .width(60)
+              .height(60)
+              .borderRadius(4)
               .objectFit(ImageFit.Cover)
               .backgroundColor('#F5F5F5')
 
             Column() {
-              Text(prod.name).fontSize(14).fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(prod.rule).fontSize(12).fontColor('#999').margin({ top: 4 })
+              Text(prod.name)
+                .fontSize(14)
+                .fontWeight(FontWeight.Bold)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+              Text(prod.rule)
+                .fontSize(12)
+                .fontColor('#999')
+                .margin({ top: 4 })
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
             }
-            .layoutWeight(1).alignItems(HorizontalAlign.Start).padding({ left: 10 })
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            .padding({ left: 10, right: 10 })
 
             Column() {
               Text(`¥${prod.price}`).fontSize(14).fontColor('#333')
               Text(`x${prod.count}`).fontSize(12).fontColor('#999')
-            }.alignItems(HorizontalAlign.End)
+            }
+            .alignItems(HorizontalAlign.End)
           }
-          .width('100%').padding({ top: 10, bottom: 10 })
+          .width('100%')
+          .padding({ top: 10, bottom: 10 })
         }, (prod: OrderProduct) => `${item.oid}_${prod.pid}`)
       }
       .width('100%')
 
       Divider().color('#F5F5F5')
 
-      Row() {
-        Text(item.date ? item.date.split('T')[0] : '').fontSize(12).fontColor('#999')
-        Blank()
-        Column() {
+      // 底部信息栏
+      Column() {
+        Row() {
+          Text(item.date ? item.date.split('T')[0] : '')
+            .fontSize(12)
+            .fontColor('#999')
+
+          Blank()
+
           Row() {
             Text('共').fontSize(12).fontColor('#999')
             Text(`${item.products.reduce((sum, p) => sum + p.count, 0)}`)
-              .fontSize(12).fontColor('#D22028').margin({ left: 2, right: 2 })
-            Text('件商品 合计:').fontSize(12).fontColor('#999')
-            Text(`¥${item.amount}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333').margin({ left: 5 })
+              .fontSize(12)
+              .fontColor('#D22028')
+              .margin({ left: 2, right: 2 })
+            Text('件 合计:').fontSize(12).fontColor('#999')
+            Text(`¥${item.amount}`)
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#333')
+              .margin({ left: 4 })
           }
+        }
+        .width('100%')
+        .padding({ top: 8, bottom: 8 })
 
-          Row() {
-            if (item.status === 1) {
-              Button('确认收货', { type: ButtonType.Normal })
-                .width(80).height(28).fontSize(12).backgroundColor(Color.White).fontColor('#0035AA')
-                .border({ width: 1, color: '#0035AA', radius: 14 })
-                .margin({ top: 10 })
-                .onClick(() => this.handleReceive(item.oid))
-            } else if (item.status === 2) {
-              Button('删除订单', { type: ButtonType.Normal })
-                .width(80).height(28).fontSize(12).backgroundColor(Color.White).fontColor('#999')
-                .border({ width: 1, color: '#CCC', radius: 14 })
-                .margin({ top: 10 })
-                .onClick(() => {
-                  AlertDialog.show({
-                    title: '提示',
-                    message: '确认删除该订单吗？',
-                    primaryButton: { value: '取消', action: () => {} },
-                    secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete(item.oid) }
-                  })
+        Row() {
+          Blank()
+
+          // 根据 item.status 动态显示按钮
+          if (item.status === 1) {
+            Button('确认收货', { type: ButtonType.Normal })
+              .width(84)
+              .height(28)
+              .fontSize(12)
+              .backgroundColor(Color.White)
+              .fontColor('#0035AA')
+              .border({ width: 1, color: '#0035AA', radius: 14 })
+              .onClick(() => this.handleReceive(item.oid))
+          } else if (item.status === 2) {
+            Button('删除订单', { type: ButtonType.Normal })
+              .width(84)
+              .height(28)
+              .fontSize(12)
+              .backgroundColor(Color.White)
+              .fontColor('#999')
+              .border({ width: 1, color: '#CCC', radius: 14 })
+              .onClick(() => {
+                AlertDialog.show({
+                  title: '提示',
+                  message: '确认删除该订单吗？',
+                  primaryButton: { value: '取消', action: () => {} },
+                  secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete(item.oid) }
                 })
-            }
-          }.justifyContent(FlexAlign.End).width('100%')
-        }.alignItems(HorizontalAlign.End)
+              })
+          }
+        }
+        .width('100%')
       }
-      .width('100%').padding({ top: 10 })
+      .width('100%')
     }
     .width('100%')
-    .padding(15)
+    .padding(12)
     .backgroundColor(Color.White)
     .borderRadius(8)
-    .margin({ bottom: 10 })
   }
 
   build() {
     Column() {
+      // 导航栏
       Row() {
-        Text('<').fontSize(24).fontColor('#333').padding({ right: 20 })
+        Text('<')
+          .fontSize(24)
+          .fontColor('#333')
+          .padding({ right: 20 })
           .onClick(() => router.back())
         Text('我的订单').fontSize(18).fontWeight(FontWeight.Bold)
       }
-      .width('100%').height(50).padding({ left: 15 }).backgroundColor(Color.White)
+      .width('100%')
+      .height(50)
+      .padding({ left: 15 })
+      .backgroundColor(Color.White)
 
+      // Tabs
       Tabs({ index: this.currentStatus }) {
         TabContent().tabBar('全部')
         TabContent().tabBar('进行中')
@@ -309,17 +379,39 @@ struct MyOrderPage {
       .barMode(BarMode.Fixed)
       .barWidth('100%')
       .barHeight(44)
+      .backgroundColor(Color.White)
+      .height(44)
 
+      // 调试信息 (可删)
+      if (this.orderList.length > 0) {
+        Text(`已加载 ${this.orderList.length} 个订单`)
+          .fontSize(10)
+          .fontColor(Color.Gray)
+          .margin({ top: 5, bottom: 5 })
+      }
+
+      // 内容区域
       if (this.isLoading) {
         Column() {
           LoadingProgress().width(40).height(40).color('#0035AA')
-        }.layoutWeight(1).justifyContent(FlexAlign.Center)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
       } else if (this.orderList.length === 0) {
         Column() {
-          Text('暂无相关订单').fontSize(14).fontColor('#999').margin({ top: 10 })
-        }.layoutWeight(1).justifyContent(FlexAlign.Center)
+          Text('暂无相关订单')
+            .fontSize(14)
+            .fontColor('#999')
+            .margin({ top: 10 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
       } else {
-        List() {
+        // 列表
+        List({ space: 12 }) {
+          // ⚠️ ForEach Key 必须唯一且稳定，这里使用 item.oid
           ForEach(this.orderList, (item: OrderItem) => {
             ListItem() {
               this.OrderItemView(item)
@@ -327,10 +419,12 @@ struct MyOrderPage {
           }, (item: OrderItem) => item.oid)
         }
         .layoutWeight(1)
-        .padding(10)
         .width('100%')
+        .padding({ left: 12, right: 12, top: 10, bottom: 20 })
       }
     }
-    .width('100%').height('100%').backgroundColor('#F5F5F5')
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F5F5F5')
   }
 }
