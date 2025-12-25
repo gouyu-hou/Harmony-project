@@ -1,5 +1,6 @@
 import CoffeeApi, { CategoryItem, ProductItem } from '../api/CoffeeApi';
 import router from '@ohos.router';
+import promptAction from '@ohos.promptAction'; // ✅ 新增：引入弹窗工具
 
 @Component
 export struct MenuPage {
@@ -10,6 +11,10 @@ export struct MenuPage {
   @State selectedIndex: number = 0;
   @State isLoading: boolean = false;
 
+  // ✅ 新增：获取 Token 和 购物车刷新控制
+  @StorageLink('token') token: string = '';
+  @StorageLink('refreshCart') refreshCart: boolean = false;
+
   aboutToAppear() {
     this.initMenuData();
   }
@@ -18,7 +23,6 @@ export struct MenuPage {
     this.isLoading = true;
     try {
       const res = await CoffeeApi.getTypes();
-      // ✅ 修改点：兼容 string 类型的 code
       if ((res.code === 200 || res.code === '200') && res.data && res.data.length > 0) {
         this.categories = res.data;
         await this.loadProducts(this.categories[0].type);
@@ -34,7 +38,6 @@ export struct MenuPage {
     this.products = [];
     try {
       const res = await CoffeeApi.getProductsByType(type);
-      // ✅ 修改点：兼容 string 类型的 code
       if ((res.code === 200 || res.code === '200') && res.data) {
         this.products = res.data;
       }
@@ -43,9 +46,36 @@ export struct MenuPage {
     }
   }
 
+  // ✅ 新增：加入购物车逻辑
+  async addToCart(item: ProductItem) {
+    // 1. 检查登录
+    if (!this.token) {
+      promptAction.showToast({ message: '请先登录' });
+      router.pushUrl({ url: 'pages/LoginPage' });
+      return;
+    }
+
+    try {
+      // 2. 调用接口
+      // 注意：列表页快速加购通常使用默认规格，这里传参 "默认"
+      // 如果你的业务逻辑强制必须选规格，则这里应该弹窗，而不是直接调用 API
+      const res = await CoffeeApi.addShopcart(this.token, item.pid, 1, '默认');
+
+      if (res.code === 200 || res.code === '200') {
+        promptAction.showToast({ message: '已加入购物车' });
+        // 3. 触发全局刷新 (通知购物车页面更新)
+        this.refreshCart = true;
+      } else {
+        promptAction.showToast({ message: res.msg || '加入失败' });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: '网络请求异常' });
+    }
+  }
+
   build() {
     Column() {
-      // 1. 搜索框
+      // 1. 搜索框 (保持不变)
       Row() {
         Text('🔍').fontSize(14).fontColor('#999').margin({ left: 10, right: 5 })
         Text('请输入搜索关键词').fontSize(14).fontColor('#CCC')
@@ -56,7 +86,7 @@ export struct MenuPage {
 
       // 2. 主体内容
       Row() {
-        // 左侧分类
+        // 左侧分类 (保持不变)
         List() {
           ForEach(this.categories, (item: CategoryItem, index: number) => {
             ListItem() {
@@ -129,14 +159,14 @@ export struct MenuPage {
           Text(`¥${item.price}`)
             .fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
 
+          // ✅ 修改点：点击加号调用 addToCart
           Text('⊕')
             .fontSize(24).fontColor('#0035AA')
-            .onClick(() => {
-              // 加购逻辑
-              router.pushUrl({
-                url: 'pages/ProductDetailPage',
-                params: { pid: item.pid }
-              });
+            .onClick((event: ClickEvent) => {
+              // 阻止事件冒泡 (如果需要防止触发跳转详情页)
+              // event.stopPropagation(); // ArkTS 中视版本支持情况，一般不用写，onClick默认捕获
+
+              this.addToCart(item);
             })
         }
         .width('100%').justifyContent(FlexAlign.SpaceBetween)
@@ -145,6 +175,7 @@ export struct MenuPage {
     }
     .padding(10).width('100%')
     .onClick(() => {
+      // 点击整行跳转详情页
       router.pushUrl({
         url: 'pages/ProductDetailPage',
         params: { pid: item.pid }

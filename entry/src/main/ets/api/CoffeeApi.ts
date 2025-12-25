@@ -30,6 +30,8 @@ export interface UserInfo { userId: string; nickName: string; userImg: string; d
 export interface MyData { userBg: string; nickName?: string; userImg?: string; }
 export interface AddressItem { aid: string; name: string; tel: string; province: string; city: string; county: string; addressDetail: string; areaCode: string; postalCode: string; isDefault: number; }
 
+
+
 export interface ShopCartItem {
   sid: string;
   pid: string;
