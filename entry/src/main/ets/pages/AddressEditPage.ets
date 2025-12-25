@@ -1,57 +1,8 @@
 import router from '@ohos.router';
 import CoffeeApi, { AddressItem, ApiResponse } from '../api/CoffeeApi';
 import promptAction from '@ohos.promptAction';
-
-// ---------------------- 1. 定义省市区数据结构与模拟数据 ----------------------
-interface AreaItem {
-  label: string;
-  value: string;
-  children?: AreaItem[];
-}
-
-// 模拟数据（实际开发中通常从JSON文件或API获取）
-const CITY_DATA: AreaItem[] = [
-  {
-    label: '北京市', value: '110000', children: [
-    {
-      label: '北京市', value: '110100', children: [
-      { label: '东城区', value: '110101' },
-      { label: '西城区', value: '110102' },
-      { label: '朝阳区', value: '110105' }
-    ]
-    }
-  ]
-  },
-  {
-    label: '广东省', value: '440000', children: [
-    {
-      label: '广州市', value: '440100', children: [
-      { label: '天河区', value: '440106' },
-      { label: '海珠区', value: '440105' },
-      { label: '越秀区', value: '440104' }
-    ]
-    },
-    {
-      label: '深圳市', value: '440300', children: [
-      { label: '南山区', value: '440305' },
-      { label: '福田区', value: '440304' }
-    ]
-    }
-  ]
-  },
-  {
-    label: '上海市', value: '310000', children: [
-    {
-      label: '上海市', value: '310100', children: [
-      { label: '黄浦区', value: '310101' },
-      { label: '徐汇区', value: '310104' }
-    ]
-    }
-  ]
-  }
-];
-
-// ---------------------- 2. 业务代码 ----------------------
+// 确保路径正确
+import { cityData } from '../data/regionData';
 
 interface AddressParams {
   aid?: string;
@@ -62,148 +13,70 @@ interface AddressParams {
 struct AddressEditPage {
   @StorageLink('token') token: string = '';
 
-  // 表单状态
+  // --- 表单数据 ---
   @State aid: string = '';
   @State name: string = '';
   @State tel: string = '';
-  // 省市区直接存储文字，用于提交和显示
   @State province: string = '';
   @State city: string = '';
   @State county: string = '';
-
   @State addressDetail: string = '';
   @State areaCode: string = '000000';
   @State isDefault: boolean = false;
+
   @State isLoading: boolean = false;
 
-  // --- 选择器相关状态 ---
-  @State showAreaPicker: boolean = false; // 控制选择器显示
-  @State multiRange: string[][] = [[], [], []]; // 选择器的三列数据
-  @State multiSelect: number[] = [0, 0, 0]; // 当前选中的索引 [省, 市, 区]
+  // --- 选择器状态 ---
+  @State isPickerShow: boolean = false;
 
-  // 临时存储选择器选中的值，点击“确定”时才赋值给表单
-  private tempProvince: string = '';
-  private tempCity: string = '';
-  private tempCounty: string = '';
+  // 【修复报错1】定义 multiRange 状态变量
+  @State multiRange: string[][] = [[], [], []];
+
+  // 选中索引 [省, 市, 区]
+  @State selectIndices: number[] = [0, 0, 0];
+
+  // 刷新标识：用于强制刷新 UI
+  @State pickerRefreshKey: number = 0;
 
   async aboutToAppear() {
-    // 初始化选择器数据（默认加载第一条路径）
+    const params = router.getParams() as AddressParams;
+
+    // 1. 初始化数据
     this.initPickerData();
 
-    const params = router.getParams() as AddressParams;
+    // 2. 编辑模式回显
     if (params && params.aid) {
       this.aid = params.aid;
       await this.fetchAddressDetail(this.aid);
-      // 获取详情后，尝试回显选择器的位置
-      this.locatePickerPosition();
     }
   }
 
-  // 初始化选择器数据（构建初始的 Range）
   initPickerData() {
-    const provinces = CITY_DATA.map(item => item.label);
-    const cities = CITY_DATA[0]?.children?.map(item => item.label) || [];
-    const counties = CITY_DATA[0]?.children?.[0]?.children?.map(item => item.label) || [];
-    this.multiRange = [provinces, cities, counties];
-    this.multiSelect = [0, 0, 0];
-
-    // 初始化临时选中值
-    this.tempProvince = CITY_DATA[0].label;
-    this.tempCity = CITY_DATA[0]?.children?.[0]?.label || '';
-    this.tempCounty = CITY_DATA[0]?.children?.[0]?.children?.[0]?.label || '';
+    // 默认加载第0个
+    this.updatePickerData(0, 0);
   }
 
-  // 根据当前的 province/city/county 定位选择器的索引 (用于编辑模式回显)
-  locatePickerPosition() {
-    if (!this.province) return;
+  // 【修复报错2】定义 updatePickerData 方法
+  updatePickerData(pIndex: number, cIndex: number) {
+    // 1. 准备省份数据
+    const provinces = cityData.map(p => p.province);
 
-    // 1. 找省的索引
-    const pIndex = CITY_DATA.findIndex(p => p.label === this.province);
-    if (pIndex === -1) return; // 没找到，保持默认
+    // 校验索引
+    if (pIndex >= cityData.length) pIndex = 0;
 
-    // 2. 找市的索引
-    const currentProvince = CITY_DATA[pIndex];
-    const cities = currentProvince.children || [];
-    const cIndex = cities.findIndex(c => c.label === this.city);
-    // 如果没找到市，默认选第一个
-    const safeCIndex = cIndex === -1 ? 0 : cIndex;
+    // 2. 准备城市数据
+    const provinceNode = cityData[pIndex];
+    // 直辖市显示空字符串
+    const cities = provinceNode.cities.map(c => c.name ? c.name : "");
 
-    // 3. 找区的索引
-    const currentCity = cities[safeCIndex];
-    const counties = currentCity?.children || [];
-    const coIndex = counties.findIndex(co => co.label === this.county);
-    const safeCoIndex = coIndex === -1 ? 0 : coIndex;
+    // 校验索引
+    if (cIndex >= provinceNode.cities.length) cIndex = 0;
 
-    // 4. 更新 Range 和 Select
-    this.multiRange = [
-      CITY_DATA.map(p => p.label),
-      cities.map(c => c.label),
-      counties.map(co => co.label)
-    ];
-    this.multiSelect = [pIndex, safeCIndex, safeCoIndex];
-  }
+    // 3. 准备区县数据
+    const districts = provinceNode.cities[cIndex].districts;
 
-  // 处理选择器滚动变化（核心级联逻辑）
-  handlePickerChange(value: string | string[], index: number | number[]) {
-    // TextPicker 在多列模式下，index 返回的是 number[]，但也可能根据版本不同表现不同
-    // 我们这里主要依赖传入的 index 数组
-    const indices = index as number[];
-    const pIndex = indices[0];
-    const cIndex = indices[1];
-    const coIndex = indices[2];
-
-    // 检查是否是“省”发生了变化
-    if (pIndex !== this.multiSelect[0]) {
-      // 省变了 -> 更新市列表(默认第0个)，更新区列表(默认第0个)
-      const newCities = CITY_DATA[pIndex]?.children || [];
-      const newCounties = newCities[0]?.children || [];
-
-      this.multiRange[1] = newCities.map(c => c.label);
-      this.multiRange[2] = newCounties.map(c => c.label);
-      this.multiSelect = [pIndex, 0, 0]; // 重置后两列索引
-
-      // 更新临时值
-      this.tempProvince = CITY_DATA[pIndex].label;
-      this.tempCity = newCities[0]?.label || '';
-      this.tempCounty = newCounties[0]?.label || '';
-
-    } else if (cIndex !== this.multiSelect[1]) {
-      // 市变了 -> 更新区列表(默认第0个)
-      const currentProvince = CITY_DATA[pIndex];
-      const currentCity = currentProvince.children?.[cIndex];
-      const newCounties = currentCity?.children || [];
-
-      this.multiRange[2] = newCounties.map(c => c.label);
-      this.multiSelect = [pIndex, cIndex, 0]; // 重置区索引
-
-      // 更新临时值
-      this.tempProvince = currentProvince.label;
-      this.tempCity = currentCity?.label || '';
-      this.tempCounty = newCounties[0]?.label || '';
-
-    } else {
-      // 只有区变了
-      this.multiSelect = [pIndex, cIndex, coIndex];
-
-      const p = CITY_DATA[pIndex];
-      const c = p.children?.[cIndex];
-      const co = c?.children?.[coIndex];
-
-      this.tempProvince = p.label;
-      this.tempCity = c?.label || '';
-      this.tempCounty = co?.label || '';
-    }
-
-    // 强制触发 UI 刷新 (ArkTS 有时对数组内部修改不敏感，重新赋值整个数组)
-    this.multiRange = [...this.multiRange];
-  }
-
-  // 确认选择
-  confirmAreaSelection() {
-    this.province = this.tempProvince;
-    this.city = this.tempCity;
-    this.county = this.tempCounty;
-    this.showAreaPicker = false;
+    // 更新二维数组状态
+    this.multiRange = [provinces, cities, districts];
   }
 
   async fetchAddressDetail(aid: string) {
@@ -220,40 +93,82 @@ struct AddressEditPage {
         this.addressDetail = detail.addressDetail;
         this.areaCode = detail.areaCode;
         this.isDefault = detail.isDefault === 1;
+
+        this.locatePickerFromText();
       }
     } catch (err) {
-      promptAction.showToast({ message: '获取地址详情失败' });
+      promptAction.showToast({ message: '获取详情失败' });
     } finally {
       this.isLoading = false;
     }
   }
 
+  locatePickerFromText() {
+    // 1. 找省
+    let pIndex = cityData.findIndex(p => p.province === this.province);
+    if (pIndex === -1) pIndex = 0;
+
+    // 2. 找市
+    // 临时构造当前省的城市列表进行查找
+    const tempCities = cityData[pIndex].cities.map(c => c.name ? c.name : "");
+    let cIndex = tempCities.findIndex(c => c === this.city);
+    if (cIndex === -1) cIndex = 0;
+
+    // 3. 找区
+    const tempDistricts = cityData[pIndex].cities[cIndex].districts;
+    let dIndex = tempDistricts.findIndex(d => d === this.county);
+    if (dIndex === -1) dIndex = 0;
+
+    // 更新数据源和选中项
+    this.updatePickerData(pIndex, cIndex);
+    this.selectIndices = [pIndex, cIndex, dIndex];
+
+    // 强制刷新
+    this.pickerRefreshKey++;
+  }
+
+  onPickerConfirm() {
+    const pIndex = this.selectIndices[0];
+    const cIndex = this.selectIndices[1];
+    const dIndex = this.selectIndices[2];
+
+    // 从当前 Range 中取值
+    if (this.multiRange[0][pIndex] !== undefined) {
+      this.province = this.multiRange[0][pIndex];
+    }
+    if (this.multiRange[1][cIndex] !== undefined) {
+      this.city = this.multiRange[1][cIndex];
+    }
+    if (this.multiRange[2][dIndex] !== undefined) {
+      this.county = this.multiRange[2][dIndex];
+    }
+
+    this.isPickerShow = false;
+  }
+
+  // --- 保存逻辑 ---
   async handleSave() {
     if (!this.name || !this.tel || !this.addressDetail || !this.province) {
       promptAction.showToast({ message: '请完善地址信息' });
       return;
     }
 
-    const addressData: AddressItem = {
-      aid: this.aid,
-      name: this.name,
-      tel: this.tel,
-      province: this.province,
-      city: this.city,
-      county: this.county,
-      addressDetail: this.addressDetail,
-      areaCode: this.areaCode,
-      postalCode: '000000',
-      isDefault: this.isDefault ? 1 : 0
-    };
+    // 2. 手机号正则校验
+    const phoneRegex = /^1[3-9]\d{9}$/;
+    if (!phoneRegex.test(this.tel)) {
+      promptAction.showToast({ message: '手机号格式不正确' });
+      return; // 校验失败，直接返回，不进行保存
+    }
 
+    const addressData: AddressItem = {
+      aid: this.aid, name: this.name, tel: this.tel, province: this.province,
+      city: this.city, county: this.county, addressDetail: this.addressDetail,
+      areaCode: this.areaCode, postalCode: '000000', isDefault: this.isDefault ? 1 : 0
+    };
     try {
       let res: ApiResponse<string>;
-      if (this.aid) {
-        res = await CoffeeApi.editAddress(this.token, addressData);
-      } else {
-        res = await CoffeeApi.addAddress(this.token, addressData);
-      }
+      if (this.aid) res = await CoffeeApi.editAddress(this.token, addressData);
+      else res = await CoffeeApi.addAddress(this.token, addressData);
 
       if (res.code === 200 || res.code === '200' || res.msg === 'Success' || res.code === 9000 || res.code === 30000) {
         promptAction.showToast({ message: '保存成功' });
@@ -261,11 +176,10 @@ struct AddressEditPage {
       } else {
         promptAction.showToast({ message: res.msg || '保存失败' });
       }
-    } catch (err) {
-      promptAction.showToast({ message: '请求异常' });
-    }
+    } catch (err) { promptAction.showToast({ message: '请求异常' }); }
   }
 
+  // --- 删除逻辑 ---
   async handleDelete() {
     if (!this.aid) return;
     try {
@@ -273,135 +187,141 @@ struct AddressEditPage {
       if (res.code === 200 || res.code === '200' || res.msg === 'Success' || res.code === '10000' || res.code === 10000) {
         promptAction.showToast({ message: '删除成功' });
         router.back();
-      } else {
-        promptAction.showToast({ message: res.msg || '删除失败' });
-      }
-    } catch (err) {
-      promptAction.showToast({ message: '删除异常' });
-    }
+      } else { promptAction.showToast({ message: res.msg || '删除失败' }); }
+    } catch (err) { promptAction.showToast({ message: '删除异常' }); }
   }
 
   build() {
-    Stack({ alignContent: Alignment.Bottom }) { // 使用 Stack 以便放置底部弹窗
-      Column() {
-        // 导航栏
-        Row() {
-          Text('<').fontSize(24).fontColor('#333').padding({ right: 20 }).onClick(() => router.back())
-          Text(this.aid ? '编辑地址' : '新增地址').fontSize(18).fontWeight(FontWeight.Bold)
-          Blank()
-          if (this.aid) {
-            Text('删除').fontSize(14).fontColor('#D22028').onClick(() => {
-              AlertDialog.show({
-                title: '提示',
-                message: '确定删除该地址吗？',
-                primaryButton: { value: '取消', action: () => {} },
-                secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete() }
-              })
+    Column() {
+      // 导航栏
+      Row() {
+        Text('<').fontSize(24).fontColor('#333').padding({ right: 20 }).onClick(() => router.back())
+        Text(this.aid ? '编辑地址' : '新增地址').fontSize(18).fontWeight(FontWeight.Bold)
+        Blank()
+        if (this.aid) {
+          Text('删除').fontSize(14).fontColor('#D22028').onClick(() => {
+            AlertDialog.show({
+              title: '提示', message: '确定删除该地址吗？',
+              primaryButton: { value: '取消', action: () => {} },
+              secondaryButton: { value: '删除', fontColor: 'red', action: () => this.handleDelete() }
             })
-          }
-        }
-        .width('100%').height(50).padding({ left: 15, right: 15 }).backgroundColor(Color.White)
-
-        // 表单区域
-        if (this.isLoading) {
-          Column() { LoadingProgress() }.layoutWeight(1).justifyContent(FlexAlign.Center)
-        } else {
-          Column({ space: 15 }) {
-
-            this.InputRow('联系人', '请填写收货人姓名', this.name, (val: string) => { this.name = val })
-            this.InputRow('手机号', '请填写收货人手机号', this.tel, (val: string) => { this.tel = val }, InputType.PhoneNumber)
-
-            // 【修改点】 替换原有的三个 InputRow 为一个选择区域
-            Column() {
-              Row() {
-                Text('所在地区').width(70).fontSize(16).fontColor('#333')
-                Row() {
-                  if (this.province) {
-                    Text(`${this.province} ${this.city} ${this.county}`)
-                      .fontSize(16).fontColor('#333')
-                  } else {
-                    Text('请选择省/市/区')
-                      .fontSize(16).fontColor('#999')
-                  }
-                }
-                .layoutWeight(1)
-                Blank()
-                Text('>').fontSize(16).fontColor('#999')
-              }
-              .height(40)
-              .width('100%')
-              .onClick(() => {
-                // 点击展开选择器
-                this.showAreaPicker = true;
-                // 每次打开时，重新校准一次位置，防止上次没保存的改动残留
-                this.locatePickerPosition();
-              })
-              Divider().color('#F0F0F0')
-            }
-
-            this.InputRow('详细地址', '街道、楼牌号等', this.addressDetail, (val: string) => { this.addressDetail = val })
-
-            Row() {
-              Text('设为默认地址').fontSize(16).fontColor('#333')
-              Toggle({ type: ToggleType.Switch, isOn: this.isDefault })
-                .selectedColor('#0035AA')
-                .onChange((isOn: boolean) => { this.isDefault = isOn; })
-            }
-            .width('100%').justifyContent(FlexAlign.SpaceBetween)
-            .padding({ top: 5, bottom: 5 })
-
-            Button('保存', { type: ButtonType.Normal })
-              .width('100%').height(45).backgroundColor('#0035AA').borderRadius(22.5).margin({ top: 30 })
-              .onClick(() => this.handleSave())
-
-          }
-          .padding(20).backgroundColor(Color.White).borderRadius(10).margin(15)
+          })
         }
       }
-      .width('100%').height('100%').backgroundColor('#F5F5F5')
+      .width('100%').height(50).padding({ left: 15, right: 15 }).backgroundColor(Color.White)
 
-      // 【新增】自定义底部选择器弹窗
-      if (this.showAreaPicker) {
-        Column() {
-          // 遮罩层 (点击关闭)
-          Column()
-            .width('100%')
-            .layoutWeight(1)
-            .backgroundColor('#99000000') // 半透明黑色
-            .onClick(() => { this.showAreaPicker = false })
+      if (this.isLoading) {
+        Column() { LoadingProgress() }.layoutWeight(1).justifyContent(FlexAlign.Center)
+      } else {
+        Column({ space: 15 }) {
+          this.InputRow('联系人', '请填写收货人姓名', this.name, (val: string) => { this.name = val })
+          this.InputRow('手机号', '请填写收货人手机号', this.tel, (val: string) => { this.tel = val }, InputType.PhoneNumber)
 
-          // 选择器面板
+          // 所在地区
           Column() {
-            // 工具栏
             Row() {
-              Text('取消').fontColor('#666').onClick(() => { this.showAreaPicker = false })
-              Text('选择地区').fontWeight(FontWeight.Bold)
-              Text('确定').fontColor('#0035AA').onClick(() => { this.confirmAreaSelection() })
+              Text('所在地区').width(70).fontSize(16).fontColor('#333')
+              // 显示逻辑：如果 city 为空字符串，界面上就只显示 省 + 区
+              Text(this.province ? `${this.province} ${this.city} ${this.county}` : '请选择所在地区')
+                .layoutWeight(1).fontSize(16)
+                .fontColor(this.province ? '#333' : '#999')
+              Text('>').fontSize(18).fontColor('#999')
             }
-            .width('100%').height(50).padding({ left: 20, right: 20 })
-            .justifyContent(FlexAlign.SpaceBetween)
-            .border({ width: { bottom: 1 }, color: '#F0F0F0' })
-            .backgroundColor(Color.White)
-
-            // 级联选择器组件
-            TextPicker({ range: this.multiRange, selected: this.multiSelect })
-              .layoutWeight(1)
-              .width('100%')
-              .backgroundColor(Color.White)
-              .onChange((value: string | string[], index: number | number[]) => {
-                this.handlePickerChange(value, index);
-              })
+            .height(50).width('100%')
+            .onClick(() => {
+              // 打开前确保数据一致
+              if (this.selectIndices.length === 3) {
+                this.updatePickerData(this.selectIndices[0], this.selectIndices[1]);
+              }
+              // 强制刷新一次 Key
+              this.pickerRefreshKey++;
+              this.isPickerShow = true;
+            })
+            Divider().color('#F0F0F0')
           }
-          .height(300) // 弹窗高度
-          .width('100%')
-          .backgroundColor(Color.White)
-          .transition({ type: TransitionType.Insert, translate: { y: 300 } }) // 简单的进场动画
+
+          this.InputRow('详细地址', '街道、楼牌号等', this.addressDetail, (val: string) => { this.addressDetail = val })
+
+          Row() {
+            Text('设为默认地址').fontSize(16).fontColor('#333')
+            Toggle({ type: ToggleType.Switch, isOn: this.isDefault })
+              .selectedColor('#0035AA')
+              .onChange((isOn: boolean) => { this.isDefault = isOn; })
+          }
+          .width('100%').justifyContent(FlexAlign.SpaceBetween).padding({ top: 5, bottom: 5 })
+
+          Button('保存', { type: ButtonType.Normal })
+            .width('100%').height(45).backgroundColor('#0035AA').borderRadius(22.5).margin({ top: 30 })
+            .onClick(() => this.handleSave())
         }
-        .width('100%').height('100%')
-        // 设置 zIndex 确保浮在最上层
-        .zIndex(999)
+        .padding(20).backgroundColor(Color.White).borderRadius(10).margin(15)
       }
     }
+    .width('100%').height('100%').backgroundColor('#F5F5F5')
+    // 绑定 Sheet，禁用默认 X 号
+    .bindSheet($$this.isPickerShow, this.CityPickerBuilder(), {
+      height: 300,
+      dragBar: false,
+      showClose: false, // 关键：去除叉号
+      backgroundColor: Color.White,
+      onDisappear: () => { this.isPickerShow = false }
+    })
+  }
+
+  @Builder CityPickerBuilder() {
+    Column() {
+      // 自定义工具栏
+      Row() {
+        Text('选择地区').fontSize(18).fontWeight(FontWeight.Bold).fontColor('#333')
+        Blank()
+        Text('确定').fontSize(16).fontColor('#0035AA').fontWeight(FontWeight.Medium)
+          .onClick(() => this.onPickerConfirm())
+      }
+      .width('100%').height(50).padding({ left: 20, right: 20 })
+      .alignItems(VerticalAlign.Center)
+      .border({ width: { bottom: 1 }, color: '#F0F0F0' })
+
+      // Picker 组件
+      TextPicker({ range: this.multiRange, selected: this.selectIndices })
+      // 绑定 Key 实现强制重绘
+        .id('picker_' + this.pickerRefreshKey)
+        .layoutWeight(1)
+        .canLoop(false)
+        .onChange((value: string | string[], index: number | number[]) => {
+          if (Array.isArray(index)) {
+            const newP = index[0];
+            const newC = index[1];
+            const oldP = this.selectIndices[0];
+            const oldC = this.selectIndices[1];
+
+            // 1. 省份变动
+            if (newP !== oldP) {
+              this.updatePickerData(newP, 0); // 更新数据
+              this.selectIndices = [newP, 0, 0]; // 重置索引
+
+              // 延迟 20ms 强制刷新 UI，解决不跳转问题
+              setTimeout(() => {
+                this.pickerRefreshKey++;
+              }, 20);
+            }
+            // 2. 城市变动
+            else if (newC !== oldC) {
+              this.updatePickerData(newP, newC); // 更新数据
+              this.selectIndices = [newP, newC, 0]; // 重置索引
+
+              // 延迟 20ms 强制刷新 UI
+              setTimeout(() => {
+                this.pickerRefreshKey++;
+              }, 20);
+            }
+            // 3. 仅区变动
+            else {
+              this.selectIndices = index;
+            }
+          }
+        })
+    }
+    .width('100%').height('100%')
   }
 
   @Builder InputRow(label: string, placeholder: string, value: string, onChange: (val: string) => void, inputType: InputType = InputType.Normal) {
@@ -409,11 +329,8 @@ struct AddressEditPage {
       Row() {
         Text(label).width(70).fontSize(16).fontColor('#333')
         TextInput({ placeholder: placeholder, text: value })
-          .layoutWeight(1)
-          .height(40)
-          .backgroundColor(Color.Transparent)
-          .type(inputType)
-          .onChange(onChange)
+          .layoutWeight(1).height(40).backgroundColor(Color.Transparent)
+          .type(inputType).onChange(onChange)
       }
       Divider().color('#F0F0F0')
     }

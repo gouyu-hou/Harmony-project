@@ -29,6 +29,17 @@ struct SettlementPage {
     this.fetchDefaultAddress();
   }
 
+  // 【新增】页面显示时触发（包括从下一级页面返回）
+  onPageShow() {
+    // 检查是否有从地址列表选中的地址
+    const selected = AppStorage.Get<AddressItem>('SelectedAddress');
+    if (selected) {
+      this.currentAddress = selected;
+      // 取出后立即清空，避免下次异常覆盖
+      AppStorage.SetOrCreate('SelectedAddress', null);
+    }
+  }
+
   // 【新增】调用 commitShopcart 接口
   async fetchOrderItems() {
     if (this.sids.length === 0) return;
@@ -165,7 +176,13 @@ struct SettlementPage {
             Text('>').fontSize(18).fontColor('#999')
           }
           .width('100%').padding(20).backgroundColor(Color.White).borderRadius(10)
-          .onClick(() => { router.pushUrl({ url: 'pages/AddressListPage' }); })
+          .onClick(() => {
+            // 【修改】跳转时携带参数，标记为选择模式
+            router.pushUrl({
+              url: 'pages/AddressListPage',
+              params: { isSelectMode: true }
+            });
+          })
 
           // 2. 【新增】商品清单模块
           Column() {

@@ -81,6 +81,12 @@ struct LoginPage {
       promptAction.showToast({ message: '请输入手机号和密码' });
       return;
     }
+    // 2. 【新增】登录手机号正则校验
+    const phoneRegex = /^1[3-9]\d{9}$/;
+    if (!phoneRegex.test(this.loginPhone)) {
+      promptAction.showToast({ message: '手机号格式不正确' });
+      return;
+    }
 
     try {
       const res = await CoffeeApi.login(this.loginPhone, this.loginPassword);
@@ -192,6 +198,20 @@ struct RegisterDialog {
       promptAction.showToast({ message: '请填写完整信息' });
       return;
     }
+
+    // 2. 【新增】注册手机号正则校验
+    const phoneRegex = /^1[3-9]\d{9}$/;
+    if (!phoneRegex.test(this.regPhone)) {
+      promptAction.showToast({ message: '注册失败，手机号格式不正确' });
+      return;
+    }
+
+    // 3. 【新增】密码长度校验 (必须为4位数及以上)
+    if (this.regPass.length < 4) {
+      promptAction.showToast({ message: '密码必须大于3位数' });
+      return;
+    }
+
     try {
       const res = await CoffeeApi.register(this.regPhone, this.regPass, this.regNick);
       if (String(res.code) === '200') {

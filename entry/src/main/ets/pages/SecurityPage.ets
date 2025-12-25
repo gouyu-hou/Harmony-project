@@ -137,6 +137,19 @@ struct ChangePasswordDialog {
             return;
           }
 
+          // 2. 密码长度校验
+          if (this.newPwd.length < 4) {
+            promptAction.showToast({ message: '密码必须大于3位数' });
+            return;
+          }
+
+          // 3. 新旧密码一致性校验
+          if (this.oldPwd === this.newPwd) {
+            promptAction.showToast({ message: '与原密码一致，修改失败' });
+            // 直接 return，不执行跳转逻辑
+            return;
+          }
+
           try {
             const res = await CoffeeApi.updatePassword(this.token, this.oldPwd, this.newPwd);
 

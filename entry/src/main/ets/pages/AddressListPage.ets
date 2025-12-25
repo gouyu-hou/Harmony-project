@@ -9,6 +9,17 @@ struct AddressListPage {
   @State addressList: AddressItem[] = [];
   @State isLoading: boolean = false;
 
+  // 【新增】是否为选择模式
+  @State isSelectMode: boolean = false;
+
+  // 【新增】获取跳转参数
+  aboutToAppear() {
+    const params = router.getParams() as Record<string, boolean>;
+    if (params && params['isSelectMode']) {
+      this.isSelectMode = true;
+    }
+  }
+
   // 使用 onPageShow 确保从编辑页返回时能刷新数据
   onPageShow() {
     this.fetchAddressList();
@@ -90,6 +101,15 @@ struct AddressListPage {
           .fontSize(14).fontColor('#333').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .layoutWeight(1).alignItems(HorizontalAlign.Start)
+      // 【新增】点击地址信息区域
+      .onClick(() => {
+        if (this.isSelectMode) {
+          // 1. 全局存储选中的地址对象
+          AppStorage.SetOrCreate('SelectedAddress', item);
+          // 2. 返回上一页（结算页）
+          router.back();
+        }
+      })
 
       // 编辑图标
       Text('编辑').fontSize(14).fontColor('#999').padding({ left: 15, top: 10, bottom: 10 })
