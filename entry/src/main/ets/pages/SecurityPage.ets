@@ -180,8 +180,8 @@ struct PwdInputItem {
           this.text = value;
         })
       // 这里的图标可以根据需求添加点击切换明文/密文逻辑，目前仅作展示
-      Image($r('app.media.denglu_mimakejian'))
-        .width(20).height(20).opacity(0.5)
+      // Image($r('app.media.denglu_mimakejian'))
+      //   .width(20).height(20).opacity(0.5)
     }
     .height(50).border({ width: { bottom: 1 }, color: '#F0F0F0' })
   }
