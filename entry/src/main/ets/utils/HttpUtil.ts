@@ -3,7 +3,11 @@ import { BusinessError } from '@ohos.base';
 
 const BASE_URL = 'https://kf.webxyq.com';
 
+
+
 class HttpUtil {
+
+
   /**
    * 发送 GET 请求
    */

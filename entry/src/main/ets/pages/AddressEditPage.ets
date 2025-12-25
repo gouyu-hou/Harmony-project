@@ -89,7 +89,7 @@ struct AddressEditPage {
         res = await CoffeeApi.addAddress(this.token, addressData);
       }
 
-      if (res.code === 200 || res.code === '200' || res.msg === 'Success') {
+      if (res.code === 200 || res.code === '200' || res.msg === 'Success' || res.code === 9000 || res.code === 30000) {
         promptAction.showToast({ message: '保存成功' });
         router.back();
       } else {
@@ -106,7 +106,7 @@ struct AddressEditPage {
 
     try {
       const res = await CoffeeApi.deleteAddress(this.token, this.aid);
-      if (res.code === 200 || res.code === '200' || res.msg === 'Success') {
+      if (res.code === 200 || res.code === '200' || res.msg === 'Success' || res.code === '10000' || res.code === 10000) {
         promptAction.showToast({ message: '删除成功' });
         router.back();
       } else {
