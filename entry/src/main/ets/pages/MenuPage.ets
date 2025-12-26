@@ -1,6 +1,6 @@
 import CoffeeApi, { CategoryItem, ProductItem } from '../api/CoffeeApi';
 import router from '@ohos.router';
-import promptAction from '@ohos.promptAction'; // ✅ 新增：引入弹窗工具
+import promptAction from '@ohos.promptAction';
 
 @Component
 export struct MenuPage {
@@ -11,7 +11,6 @@ export struct MenuPage {
   @State selectedIndex: number = 0;
   @State isLoading: boolean = false;
 
-  // ✅ 新增：获取 Token 和 购物车刷新控制
   @StorageLink('token') token: string = '';
   @StorageLink('refreshCart') refreshCart: boolean = false;
 
@@ -46,9 +45,7 @@ export struct MenuPage {
     }
   }
 
-  // ✅ 新增：加入购物车逻辑
   async addToCart(item: ProductItem) {
-    // 1. 检查登录
     if (!this.token) {
       promptAction.showToast({ message: '请先登录' });
       router.pushUrl({ url: 'pages/LoginPage' });
@@ -56,14 +53,9 @@ export struct MenuPage {
     }
 
     try {
-      // 2. 调用接口
-      // 注意：列表页快速加购通常使用默认规格，这里传参 "默认"
-      // 如果你的业务逻辑强制必须选规格，则这里应该弹窗，而不是直接调用 API
       const res = await CoffeeApi.addShopcart(this.token, item.pid, 1, '默认');
-
       if (res.code === 200 || res.code === '200') {
         promptAction.showToast({ message: '已加入购物车' });
-        // 3. 触发全局刷新 (通知购物车页面更新)
         this.refreshCart = true;
       } else {
         promptAction.showToast({ message: res.msg || '加入失败' });
@@ -114,68 +106,89 @@ export struct MenuPage {
         }
         .width('25%').height('100%').backgroundColor('#F9F9F9')
 
-        // 右侧商品
+        // 右侧商品 (UI变更区域)
         Stack() {
           if (this.isLoading && this.products.length === 0) {
             LoadingProgress().width(40).height(40).color('#0035AA')
           } else {
-            List() {
+            // ✅ 修改点 1: 将 List 替换为 Grid
+            Grid() {
               ForEach(this.products, (item: ProductItem) => {
-                ListItem() {
+                GridItem() {
                   this.GoodsItemBuilder(item)
                 }
               }, (item: ProductItem) => item.pid)
             }
-            .layoutWeight(1).width('100%').height('100%')
+            .columnsTemplate('1fr 1fr') // ✅ 关键：设置两列，比例 1:1
+            .rowsGap(10)     // 行间距
+            .columnsGap(10)  // 列间距
+            .padding(10)     // 整体内边距
+            .layoutWeight(1)
+            .width('100%')
+            .height('100%')
+            .scrollBar(BarState.Off)
           }
         }
-        .width('75%').height('100%').backgroundColor(Color.White)
+        // 背景设为浅灰，让白色卡片更明显
+        .width('75%').height('100%').backgroundColor('#F5F5F5')
       }
       .layoutWeight(1).width('100%')
     }
     .width('100%').height('100%').backgroundColor(Color.White)
   }
 
+  // ✅ 修改点 2: 重新设计卡片样式 (由 Row 改为 Column)
   @Builder GoodsItemBuilder(item: ProductItem) {
-    Row() {
+    Column() {
+      // 图片区域
       Image(item.smallImg)
-        .width(80).height(80)
-        .borderRadius(4)
+        .width('100%') // 占满卡片宽度
+        .height(110)   // 设定固定高度
         .objectFit(ImageFit.Cover)
-        .backgroundColor('#F5F5F5')
-        .margin({ right: 10 })
+        .borderRadius({ topLeft: 8, topRight: 8 }) // 只有上面两个角是圆角
+        .backgroundColor('#EEEEEE')
 
+      // 内容区域
       Column() {
         Text(item.name)
-          .fontSize(16).fontWeight(FontWeight.Bold).fontColor('#333')
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontSize(14)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#333')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: 5 })
 
         Text(item.enname)
-          .fontSize(12).fontColor('#999')
-          .margin({ top: 2, bottom: 15 })
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontSize(10)
+          .fontColor('#999')
+          .margin({ top: 2, bottom: 8 })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
 
+        // 价格和加购按钮
         Row() {
           Text(`¥${item.price}`)
             .fontSize(16).fontColor('#D22028').fontWeight(FontWeight.Bold)
 
-          // ✅ 修改点：点击加号调用 addToCart
           Text('⊕')
             .fontSize(24).fontColor('#0035AA')
             .onClick((event: ClickEvent) => {
-              // 阻止事件冒泡 (如果需要防止触发跳转详情页)
-              // event.stopPropagation(); // ArkTS 中视版本支持情况，一般不用写，onClick默认捕获
-
               this.addToCart(item);
             })
         }
-        .width('100%').justifyContent(FlexAlign.SpaceBetween)
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween) // 两端对齐
+        .alignItems(VerticalAlign.Center)
       }
-      .layoutWeight(1).alignItems(HorizontalAlign.Start)
+      .padding(8)
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
     }
-    .padding(10).width('100%')
+    .width('100%')
+    .backgroundColor(Color.White)
+    .borderRadius(8)
+    .shadow({ radius: 4, color: '#1A000000', offsetY: 2 }) // 增加一点阴影让它像卡片
     .onClick(() => {
-      // 点击整行跳转详情页
       router.pushUrl({
         url: 'pages/ProductDetailPage',
         params: { pid: item.pid }

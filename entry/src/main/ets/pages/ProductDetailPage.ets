@@ -1,6 +1,6 @@
 import router from '@ohos.router';
 import promptAction from '@ohos.promptAction';
-import CoffeeApi, { ProductDetail, ApiResponse } from '../api/CoffeeApi';
+import CoffeeApi, { ProductDetail, ShopCartItem, ProductItem, ApiResponse } from '../api/CoffeeApi';
 
 // 扩展接口以支持 API 返回的额外字段 (如 milk)
 interface ProductDetailFull extends ProductDetail {
@@ -19,23 +19,31 @@ struct ProductDetailPage {
   @State currentTemp: string = '';
   @State currentSugar: string = '';
   @State currentCream: string = '';
-  @State currentMilk: string = ''; // 新增：奶选项
+  @State currentMilk: string = '';
   @State buyCount: number = 1;
 
   // 收藏状态
   @State isLiked: boolean = false;
+  // 购物车数量
+  @State cartCount: number = 0;
 
   // 用户Token
   @StorageLink('token') token: string = '';
 
   aboutToAppear() {
     const params = router.getParams() as Record<string, string>;
-    if (params && params.pid) {
+    if (params && params['pid']) {
       this.pid = params.pid;
       this.loadData();
     } else {
       promptAction.showToast({ message: '参数错误' });
       router.back();
+    }
+  }
+
+  onPageShow() {
+    if (this.token) {
+      this.updateCartCount();
     }
   }
 
@@ -46,6 +54,7 @@ struct ProductDetailPage {
 
       if (this.token) {
         this.checkLikeStatus();
+        this.updateCartCount();
       }
 
       const res = await detailPromise;
@@ -53,7 +62,7 @@ struct ProductDetailPage {
       if ((res.code === 200 || res.code === '200') && res.data) {
         if (Array.isArray(res.data) && res.data.length > 0) {
           this.product = res.data[0] as ProductDetailFull;
-          this.initSpecs(); // 初始化默认选中项
+          this.initSpecs();
         }
       }
     } catch (err) {
@@ -64,13 +73,23 @@ struct ProductDetailPage {
     }
   }
 
-  // ✅ 修复点：解决 Type 'undefined' is not assignable to type 'boolean' 报错
+  async updateCartCount() {
+    if (!this.token) return;
+    try {
+      const res: ApiResponse<ShopCartItem[]> = await CoffeeApi.findAllShopcart(this.token);
+      if ((res.code === 200 || res.code === '200') && res.data) {
+        this.cartCount = res.data.length;
+      }
+    } catch (err) {
+      console.error('购物车数量获取失败', JSON.stringify(err));
+    }
+  }
+
   async checkLikeStatus() {
     if (!this.token) return;
     try {
-      const res = await CoffeeApi.findLike(this.token, this.pid);
+      const res: ApiResponse<ProductItem[]> = await CoffeeApi.findLike(this.token, this.pid);
 
-      // 使用严格的 if 判断，确保只赋值 true 或 false
       if ((res.code === 200 || res.code === '200') &&
       res.data &&
       Array.isArray(res.data) &&
@@ -86,7 +105,6 @@ struct ProductDetailPage {
 
   initSpecs() {
     if (!this.product) return;
-    // 取斜杠前的第一个选项作为默认值
     if (this.product.tem) this.currentTemp = this.product.tem.split('/')[0];
     if (this.product.sugar) this.currentSugar = this.product.sugar.split('/')[0];
     if (this.product.cream) this.currentCream = this.product.cream.split('/')[0];
@@ -125,12 +143,12 @@ struct ProductDetailPage {
     if (!this.checkLogin()) return;
 
     const rule = this.getRuleString();
-    console.info(`【Debug】加入购物车: PID=${this.pid}, Count=${this.buyCount}, Rule=${rule}`);
 
     try {
       const res = await CoffeeApi.addShopcart(this.token, this.pid, this.buyCount, rule);
       if (res.code === 200 || res.code === '200' || res.code === 'B001' || res.code === 3000 || res.msg === 'Success') {
         promptAction.showToast({ message: '已加入购物袋 🛍️' });
+        this.updateCartCount();
       } else {
         promptAction.showToast({ message: res.msg || '添加失败' });
       }
@@ -182,20 +200,18 @@ struct ProductDetailPage {
                   }.alignItems(HorizontalAlign.Start)
 
                   Blank()
-                  // 兼容 string 或 number 类型的价格
                   Text(`¥${Number(this.product.price).toFixed(2)}`).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#D22028')
                 }
                 .width('100%').margin({ top: 15, bottom: 15 })
 
                 Divider().color('#EEE')
 
-                // ✅ 动态规格区域 - 使用 SpecView 组件解决点击无响应问题
-
+                // 动态规格
                 if (this.product.tem) {
                   SpecView({
-                    title: this.product.tem_desc || '温度', // 优先用接口返回的标题
+                    title: this.product.tem_desc || '温度',
                     options: this.product.tem.split('/'),
-                    selected: $currentTemp // 双向绑定
+                    selected: $currentTemp
                   })
                 }
 
@@ -215,7 +231,6 @@ struct ProductDetailPage {
                   })
                 }
 
-                // 奶 (Milk) 选项支持
                 if (this.product.milk) {
                   SpecView({
                     title: this.product.milk_desc || '奶',
@@ -250,26 +265,98 @@ struct ProductDetailPage {
             }
           }.width('100%').height('100%')
 
-          // 3. 底部操作栏
+          // 3. 底部操作栏 (重点优化区域)
           Row() {
-            Column() {
-              Text(this.isLiked ? '♥' : '♡')
-                .fontSize(24).fontColor(this.isLiked ? '#D22028' : '#333')
-              Text('收藏').fontSize(10).fontColor('#666')
-            }
-            .padding({ left: 20, right: 20 })
-            .onClick(() => this.toggleLike())
+            // 左侧：购物袋 + 收藏
+            Row() {
+              // --- 1. 购物袋模块 ---
+              Column() {
+                // 图标层 (使用 Stack 固定高度，确保与旁边收藏对齐)
+                Stack({ alignContent: Alignment.TopEnd }) {
+                  Image($r('app.media.shopbag'))
+                    .width(24)
+                    .height(24)
+                    .objectFit(ImageFit.Contain)
 
+                  // 红色数量角标
+                  if (this.cartCount > 0) {
+                    Text(this.cartCount > 99 ? '99+' : this.cartCount.toString())
+                      .fontSize(8)
+                      .fontColor(Color.White)
+                      .backgroundColor('#FF0000')
+                      .borderRadius(8)
+                      .padding({ left: 3, right: 3 })
+                      .height(14)
+                      .constraintSize({ minWidth: 14 })
+                      .textAlign(TextAlign.Center)
+                      .offset({ x: 5, y: -5 }) // 微调角标位置
+                  }
+                }
+                .width(30)
+                .height(30) // 固定高度 30
+                .alignContent(Alignment.Center)
+
+                // 文字层
+                Text('购物袋')
+                  .fontSize(10)
+                  .fontColor('#666')
+                  .margin({ top: 0 }) // 紧贴图标
+              }
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+              .width(50)
+              .height('100%')
+              .onClick(() => {
+                // ✅ 修改：跳转到首页 (MainPage 通常包含购物袋Tab)
+                // 跳转到主页，并传递 index: 2 以便切换到购物袋 Tab
+                router.pushUrl({
+                  url: 'pages/MainPage',
+                  params: { index: 2 }
+                });
+              })
+
+              // --- 2. 收藏模块 ---
+              Column() {
+                // 图标层 (同样固定高度 30)
+                Stack({ alignContent: Alignment.Center }) {
+                  Text(this.isLiked ? '♥' : '♡')
+                    .fontSize(24)
+                    .fontColor(this.isLiked ? '#D22028' : '#333')
+                    .fontWeight(this.isLiked ? FontWeight.Bold : FontWeight.Normal)
+                    .textAlign(TextAlign.Center)
+                }
+                .width(30)
+                .height(30) // 确保与左边高度一致
+
+                // 文字层
+                Text('收藏')
+                  .fontSize(10)
+                  .fontColor('#666')
+                  .margin({ top: 0 })
+              }
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+              .width(50)
+              .height('100%')
+              .onClick(() => this.toggleLike())
+              .margin({ left: 10 })
+            }
+            .padding({ left: 15 })
+
+            // 右侧：加购按钮
             Button('加入购物袋', { type: ButtonType.Normal })
               .layoutWeight(1)
-              .height(44)
+              .height(42) // 按钮高度
               .backgroundColor('#0035AA')
-              .borderRadius(22)
+              .borderRadius(21)
               .fontSize(16)
-              .margin({ left: 10, right: 15 })
+              .margin({ left: 15, right: 20 })
               .onClick(() => this.handleAddToCart())
           }
-          .width('100%').height(60).backgroundColor(Color.White)
+          .width('100%')
+          .height(80) // ✅ 增加高度，防止被切
+          .padding({ bottom: 15 }) // ✅ 底部内边距，抬高内容
+          .backgroundColor(Color.White)
           .shadow({ radius: 10, color: '#1A000000', offsetY: -2 })
         }
         .width('100%').height('100%')
@@ -279,12 +366,12 @@ struct ProductDetailPage {
   }
 }
 
-// ✅ 独立组件 SpecView：解决 UI 状态不更新的核心
+// 规格选择子组件
 @Component
 struct SpecView {
   @Prop title: string;
   @Prop options: string[];
-  @Link selected: string; // 关键：使用 @Link 实现双向绑定
+  @Link selected: string;
 
   build() {
     Column() {
@@ -293,13 +380,11 @@ struct SpecView {
         ForEach(this.options, (opt: string) => {
           Text(opt)
             .fontSize(12)
-            // 动态样式：根据 selected 改变颜色
             .fontColor(this.selected === opt ? Color.White : '#666')
             .backgroundColor(this.selected === opt ? '#0035AA' : '#F0F0F0')
             .padding({ left: 15, right: 15, top: 6, bottom: 6 })
             .borderRadius(15)
             .margin({ right: 10, bottom: 10 })
-            // 点击更新 selected，父组件会自动感知
             .onClick(() => {
               this.selected = opt;
             })

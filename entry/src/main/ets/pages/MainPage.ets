@@ -37,6 +37,14 @@ struct MainApp {
   @State isSearchActive: boolean = false;
   @State currentTabIndex: number = 0;
 
+  // ✅✅✅ 请将这段代码加在这里 (MainApp 内部)
+  aboutToAppear() {
+    const params = router.getParams() as Record<string, number>;
+    if (params && params['index'] !== undefined) {
+      this.currentTabIndex = params['index'];
+    }
+  }
+
   build() {
     Stack() {
       Tabs({ index: this.currentTabIndex }) {
@@ -129,6 +137,8 @@ struct HomePage {
   @State hotProducts: Product[] = [];
 
   aboutToAppear() {
+
+
     this.fetchBanners();
     this.fetchHotProducts();
   }
